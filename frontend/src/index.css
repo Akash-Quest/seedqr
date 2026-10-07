@@ -1,0 +1,2006 @@
+:root {
+  --brand: #1b3a7a;
+  --brand-dark: #132b5c;
+  --brand-tint: #e7edf8;
+  --accent: #e0941a;
+  --accent-tint: #fcf1dc;
+  /* Bars in charts: a lighter step of the brand blue, so they read as data. */
+  --chart: #2f5fb3;
+
+  --paper: #f2f4f8;
+  --card: #fff;
+  --line: #dde2ea;
+  --line-strong: #c2c9d6;
+
+  --ink: #131a27;
+  --muted: #5a6373;
+  --red: #a3301f;
+  --red-bg: #f8e3df;
+  --ok: #23683f;
+  --ok-bg: #e0f0e5;
+  --warn-bg: #fcf1dc;
+
+  --radius: 10px;
+  --radius-small: 7px;
+  --shadow: 0 1px 2px rgb(19 26 39 / 0.05), 0 4px 14px rgb(19 26 39 / 0.04);
+
+  font-family: 'Public Sans Variable', system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+/* Nothing may make the page wider than the screen: on a phone that zooms
+   the page out and pushes the bottom menu partly off screen. Wide tables
+   scroll inside their own box instead. */
+html,
+body {
+  overflow-x: clip;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 1.08rem;
+  font-weight: 650;
+}
+
+a {
+  color: var(--brand);
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--brand-dark);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  background: var(--accent);
+  color: var(--ink);
+  padding: 0.5rem 1rem;
+  z-index: 2;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+.mono {
+  font-family: ui-monospace, Consolas, 'Courier New', monospace;
+  font-size: 0.92em;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+}
+
+.logo {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+}
+
+/* ---- Office layout: white menu on the left, page on the right ---- */
+
+.app {
+  display: grid;
+  grid-template-columns: 12.5rem minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-right: 1px solid var(--line);
+  padding: 1.1rem 0.7rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0 0.4rem 1.25rem;
+}
+
+.brand-text {
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.brand-text strong {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.brand-text small {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidenav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.sidenav a {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.42rem 0.65rem;
+  border-radius: var(--radius-small);
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.93rem;
+  font-weight: 500;
+}
+
+.sidenav .icon {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.sidenav a:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.sidenav a.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.9rem 0.2rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.account-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.account-text strong {
+  display: block;
+  font-weight: 600;
+}
+
+.account-text span {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  /* A long username is cut with "…" rather than widening the sidebar. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account .icon-button:hover {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.main {
+  min-width: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 2rem;
+  flex-wrap: wrap;
+  padding: 1.4rem 2.5rem 0;
+  /* Fills the space beside the sidebar on any screen width. */
+}
+
+.page-header p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin-top: 0.1rem;
+}
+
+.page-actions {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.page {
+  padding: 1.25rem 2.5rem 4rem;
+  /* Fills the space beside the sidebar on any screen width. */
+}
+
+.page > * + * {
+  margin-top: 1.25rem;
+}
+
+/* ---- Cards ---- */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1.5rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.4rem;
+}
+
+.card-head p {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.card-head + .card-body {
+  padding-top: 0.4rem;
+}
+
+.card-body {
+  padding: 1.4rem;
+}
+
+.card-body > * + * {
+  margin-top: 1rem;
+}
+
+.card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.4rem;
+  background: #f8f9fb;
+  border-top: 1px solid var(--line);
+}
+
+/* Buttons only: keep them on the right. */
+.card-foot.end {
+  justify-content: flex-end;
+}
+
+.card-foot .grow {
+  flex: 1;
+  min-width: 12rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+/* ---- Buttons ---- */
+
+button,
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-small);
+  padding: 0.55rem 1.1rem;
+  min-height: 2.7rem;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button:hover,
+.button:hover {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.secondary,
+.button.secondary {
+  background: var(--card);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+button.secondary:hover,
+.button.secondary:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+button.danger {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+button.danger:hover {
+  background: #86261a;
+  border-color: #86261a;
+}
+
+button.secondary.danger {
+  background: var(--card);
+  color: var(--red);
+  border-color: #e3b9b1;
+}
+
+button.secondary.danger:hover {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+button.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  font-weight: 500;
+  color: var(--brand);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+button.icon-button {
+  background: none;
+  border: 0;
+  padding: 0.4rem;
+  min-height: 0;
+  color: var(--muted);
+}
+
+button.icon-button:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* ---- Tabs ---- */
+
+.tabs {
+  display: flex;
+  gap: 1.75rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.tabs button {
+  position: relative;
+  min-height: 0;
+  padding: 0.6rem 0.1rem 0.75rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tabs button:hover {
+  background: none;
+  color: var(--ink);
+}
+
+.tabs button.on {
+  color: var(--brand);
+}
+
+.tabs button.on::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--brand);
+}
+
+.badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.25rem 0.5rem;
+  border-radius: 99px;
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+
+/* ---- Pick one of a few choices ---- */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chips label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem 0.5rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 99px;
+  background: var(--card);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* The round marker on the left of each choice. */
+.chips label::before {
+  content: '';
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid var(--line-strong);
+  background: #fff;
+}
+
+.chips label:has(input:checked) {
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand-dark);
+}
+
+.chips label:has(input:checked)::before {
+  border: 5px solid var(--brand);
+}
+
+.chips label:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.chips input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- Forms ---- */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.1rem 1.5rem;
+  /* Keeps the boxes in a row level when one field has a hint above it. */
+  align-items: end;
+}
+
+.form-grid > * {
+  margin-top: 0;
+}
+
+.form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.3rem;
+}
+
+.field-label label,
+legend {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.field-label span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 0.35rem;
+}
+
+input,
+select {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 0.55rem 0.75rem;
+  min-height: 2.7rem;
+}
+
+input::placeholder {
+  color: #8a92a0;
+}
+
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgb(27 58 122 / 0.2);
+  outline-offset: 0;
+  border-color: var(--brand);
+}
+
+input[type='checkbox'] {
+  display: inline-block;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--brand);
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+}
+
+.field input + select,
+.gap {
+  margin-top: 0.5rem;
+}
+
+.error {
+  color: var(--red);
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.3rem;
+}
+
+.field.bad input,
+.field.bad select {
+  border-color: var(--red);
+}
+
+/* ---- Messages ---- */
+
+.notice,
+.warning,
+.problem {
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  border-left: 4px solid;
+}
+
+.notice > * + *,
+.warning > * + *,
+.problem > * + * {
+  margin-top: 0.6rem;
+}
+
+.notice {
+  background: var(--ok-bg);
+  border-color: var(--ok);
+}
+
+.warning {
+  background: var(--warn-bg);
+  border-color: var(--accent);
+}
+
+.problem {
+  background: var(--red-bg);
+  border-color: var(--red);
+}
+
+/* ---- Dashboard ---- */
+
+/* Time period buttons, joined into one control. */
+.range {
+  display: inline-flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.range button {
+  min-height: 0;
+  padding: 0.45rem 0.9rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.range button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.range button:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.range button.on {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-weight: 600;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 1.25rem;
+}
+
+.stat {
+  padding: 1.1rem 1.3rem;
+}
+
+.stat-label {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.stat-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.stat-note .up {
+  color: var(--ok);
+}
+
+.stat-note .down {
+  color: var(--red);
+}
+
+.split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Column chart: scale on the left, columns grow up from the baseline. */
+.chart {
+  display: flex;
+  gap: 0.6rem;
+  --plot-height: 13rem;
+}
+
+.chart-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  /* Half a line taller at each end, so each number sits on its gridline. */
+  height: calc(var(--plot-height) + 1.2rem);
+  margin: -0.6rem 0;
+  font-size: 0.78rem;
+  line-height: 1.2rem;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-plot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-grid {
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--plot-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.chart-grid span {
+  height: 1px;
+  background: var(--line);
+}
+
+.chart-grid span:last-child {
+  background: var(--line-strong);
+}
+
+.chart-columns {
+  position: relative;
+  display: flex;
+  height: var(--plot-height);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The whole slot is the hover target, not just the painted bar. */
+.chart-columns li {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 1px;
+  outline-offset: -2px;
+}
+
+/* Coloured pieces stacked from the baseline up, with a thin gap between. */
+.chart-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+  width: 100%;
+  max-width: 24px;
+}
+
+.chart-stack span {
+  flex-basis: 0;
+  min-height: 2px;
+}
+
+.chart-stack span:last-child {
+  border-radius: 4px 4px 0 0;
+}
+
+.chart-columns li:hover,
+.chart-columns li:focus-visible {
+  background: rgb(19 26 39 / 0.06);
+}
+
+.chart-tip {
+  position: absolute;
+  bottom: calc(100% - 1.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  display: none;
+  padding: 0.4rem 0.65rem;
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.chart-tip > span {
+  display: block;
+  opacity: 0.8;
+}
+
+.chart-tip .chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  opacity: 1;
+}
+
+.chart-tip-row:first-of-type {
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  border-top: 1px solid rgb(255 255 255 / 0.2);
+}
+
+/* A short stroke of the series colour. */
+.chart-tip-row i {
+  width: 0.8rem;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.chart-columns li.at-start .chart-tip {
+  left: 0;
+  transform: none;
+}
+
+.chart-columns li.at-end .chart-tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.chart-columns li:hover .chart-tip,
+.chart-columns li:focus-visible .chart-tip {
+  display: block;
+}
+
+.chart-ticks {
+  display: flex;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.chart-ticks span {
+  flex: 1;
+  width: 0;
+  text-align: center;
+  white-space: nowrap;
+  display: flex;
+  justify-content: center;
+}
+
+/* Horizontal bars with the name and number written out. */
+.bar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.bar-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.3rem 1rem;
+  align-items: baseline;
+}
+
+.bar-name {
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+
+.bar-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-track {
+  grid-column: 1 / -1;
+  height: 10px;
+}
+
+.bar-track > span {
+  display: flex;
+  gap: 2px;
+  height: 100%;
+  min-width: 4px;
+}
+
+.bar-track > span > span {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.bar-track > span > span:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+/* Legend: a colour swatch beside each name. Text stays in normal ink. */
+.legend {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  font-size: 0.88rem;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.legend i {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.legend.stacked {
+  flex: 1 1 11rem;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+}
+
+.legend.stacked li {
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-small);
+}
+
+.legend.stacked li.on {
+  background: var(--paper);
+}
+
+.legend.stacked li span:first-of-type {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.legend.stacked .muted {
+  width: 2.6rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.donut {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+}
+
+.donut svg {
+  width: 11rem;
+  height: 11rem;
+  flex-shrink: 0;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.donut circle {
+  transition: stroke-width 0.12s;
+  outline: none;
+}
+
+.donut-value {
+  font-size: 20px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.donut-label {
+  font-size: 8px;
+  fill: var(--muted);
+}
+
+.split.wide {
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* Taller plot beside the donut, so the two cards end level. */
+.split.wide .chart {
+  --plot-height: 17rem;
+}
+
+/* ---- Tables and lists ---- */
+
+.table-wrap {
+  overflow-x: auto;
+  /* Keeps hidden screen-reader labels in the last column inside this box;
+     otherwise they stretch the page wider than a phone screen. */
+  position: relative;
+  border-top: 1px solid var(--line);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.75rem 1.4rem 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+th:first-child,
+td:first-child {
+  padding-left: 1.4rem;
+}
+
+th {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: #f8f9fb;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+tbody tr:hover {
+  background: #f8f9fb;
+}
+
+td.wrap {
+  white-space: normal;
+  min-width: 16rem;
+}
+
+td.strong {
+  font-weight: 600;
+}
+
+button.link-button.small {
+  display: block;
+  font-size: 0.85rem;
+}
+
+/* Row number on the left of a table. */
+th.number,
+td.number {
+  width: 1%;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Links and icon buttons on the right of a table row. */
+td.row-actions {
+  width: 1%;
+  text-align: right;
+  padding-right: 1.1rem;
+}
+
+td.row-actions > * {
+  vertical-align: middle;
+  margin-left: 0.5rem;
+}
+
+td.row-actions span {
+  color: var(--muted);
+}
+
+button.icon-button.danger:hover,
+button.link-button.danger {
+  color: var(--red);
+}
+
+button.icon-button.danger {
+  background: none;
+  border: 0;
+}
+
+button.icon-button.danger:hover {
+  background: var(--red-bg);
+}
+
+.details.gap-below {
+  margin-bottom: 1.25rem;
+}
+
+/* ---- Form fields editor (Barcode page) ---- */
+
+.field-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.field-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 11rem auto 2.2rem;
+  gap: 0.6rem 1rem;
+  align-items: start;
+  padding: 0.85rem 1.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.field-list li:last-child {
+  border-bottom: 0;
+}
+
+/* A hidden question is greyed so it reads as switched off. */
+.field-list li.is-hidden .field-main,
+.field-list li.is-hidden .field-type {
+  opacity: 0.5;
+}
+
+.field-order {
+  display: flex;
+  flex-direction: column;
+}
+
+.field-order .icon-button {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.field-order .icon-button:disabled {
+  opacity: 0.25;
+}
+
+.field-main {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field-main input,
+.field-main textarea,
+.field-type select {
+  min-height: 2.4rem;
+}
+
+.field-main .field-hint {
+  font-size: 0.9rem;
+  min-height: 2.1rem;
+}
+
+.field-type .muted {
+  display: block;
+  padding-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.field-type small {
+  display: block;
+  font-size: 0.78rem;
+}
+
+.field-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.35rem;
+  font-size: 0.92rem;
+  white-space: nowrap;
+}
+
+.field-switches .check:has(input:disabled) {
+  color: var(--muted);
+  cursor: default;
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 0.55rem 0.75rem;
+  resize: vertical;
+}
+
+textarea:focus-visible {
+  outline: 3px solid rgb(27 58 122 / 0.2);
+  outline-offset: 0;
+  border-color: var(--brand);
+}
+
+@media (max-width: 860px) {
+  .field-list li {
+    grid-template-columns: auto minmax(0, 1fr) 2.2rem;
+    padding: 0.85rem 1rem;
+  }
+
+  .field-type,
+  .field-switches {
+    grid-column: 2;
+  }
+
+  .field-switches {
+    flex-direction: row;
+    gap: 1.25rem;
+  }
+
+  .field-remove {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+/* Channel manager inside the farmer form editor. */
+.channels {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: #f8f9fb;
+}
+
+.channels-add {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.channels-add button {
+  white-space: nowrap;
+  min-height: 2.4rem;
+}
+
+.channels-search {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.channels-search input {
+  max-width: 22rem;
+}
+
+.channels-search span {
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+.channels-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 22rem;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+}
+
+.channels-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9rem;
+}
+
+.channels-list li:last-child {
+  border-bottom: 0;
+}
+
+.channels-list li > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.channels-list li.is-editing input {
+  flex: 1;
+  min-height: 2.2rem;
+}
+
+.channels-list .icon-button .icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+/* Tick-box column for choosing rows to export. */
+th.tick,
+td.tick {
+  width: 1%;
+  padding-right: 0.9rem;
+}
+
+td.tick input,
+th.tick input {
+  display: block;
+  margin-top: 0.15rem;
+  cursor: pointer;
+}
+
+tbody tr.picked,
+tbody tr.picked:hover {
+  background: var(--brand-tint);
+}
+
+/* The row that opens under an entry to show its device details. */
+tr.detail-row,
+tr.detail-row:hover {
+  background: #f8f9fb;
+}
+
+tr.detail-row td {
+  white-space: normal;
+  padding: 1.1rem 1.4rem 1.3rem;
+}
+
+tr.detail-row h3 {
+  margin: 0 0 0.8rem;
+  font-size: 0.95rem;
+}
+
+.details .full {
+  grid-column: 1 / -1;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.rows li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 1.5rem;
+  flex-wrap: wrap;
+  padding: 0.8rem 1.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.rows li:last-child {
+  border-bottom: 0;
+}
+
+.empty {
+  padding: 2.5rem 1.4rem;
+  text-align: center;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.empty strong {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 1.05rem;
+  margin-bottom: 0.25rem;
+}
+
+.search {
+  max-width: 24rem;
+  flex: 1 1 16rem;
+}
+
+/* Search box, date range and count on one row; wraps on narrow screens. */
+.card-head.filters {
+  justify-content: flex-start;
+  gap: 0.75rem 1rem;
+}
+
+.date-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.date-filter input {
+  width: auto;
+}
+
+.card-head .filter-count {
+  margin-left: auto;
+}
+
+/* ---- Seed details ---- */
+
+.details {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+.details dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.details dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* ---- QR label ---- */
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  background: #fff;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-small);
+  padding: 1rem 1.25rem;
+  max-width: 100%;
+}
+
+.label p {
+  margin-bottom: 0.4rem;
+  max-width: 16rem;
+}
+
+.label-dept,
+.label-code {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.label-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  line-height: 1.3;
+}
+
+.label-name span {
+  display: block;
+  font-weight: 400;
+  font-size: 0.92rem;
+}
+
+.label-help {
+  font-size: 0.92rem;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--brand);
+  font-weight: 500;
+}
+
+details[open] summary {
+  margin-bottom: 1rem;
+}
+
+.link-line {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- The farmer's page (phone) ---- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.75rem 1rem;
+  background: var(--brand-dark);
+  color: #fff;
+  border-bottom: 3px solid var(--accent);
+}
+
+.topbar .logo {
+  width: 1.9rem;
+  height: 1.9rem;
+}
+
+.topbar strong {
+  font-size: 1.1rem;
+}
+
+.topbar span {
+  margin-left: auto;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.public-main {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.public-main > * + * {
+  margin-top: 1.1rem;
+}
+
+.public-title p {
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+/* ---- Sign-in: what the app does on the left, the form on the right ---- */
+
+.signin {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  background: var(--card);
+}
+
+.signin-art {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  /* The same space separates the logo, the steps and the sample label. */
+  gap: 2.75rem;
+  overflow: hidden;
+  padding: 2rem 3rem;
+  color: #fff;
+  /* A soft glow in one corner over a fine dot grid. */
+  background:
+    radial-gradient(circle at 85% 110%, rgb(224 148 26 / 0.22), transparent 45%),
+    radial-gradient(rgb(255 255 255 / 0.09) 1px, transparent 1.5px) 0 0 / 22px 22px,
+    linear-gradient(160deg, #1b3a7a, #0f2350);
+}
+
+/* With a photo set in config.ts, the photo replaces the pattern. */
+.signin-art.has-photo {
+  background-size: cover;
+  background-position: center;
+}
+
+.signin-art.has-photo::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgb(15 35 80 / 0.88), rgb(15 35 80 / 0.55));
+}
+
+.signin-art > * {
+  position: relative;
+}
+
+.signin-art .brand {
+  padding: 0;
+}
+
+.signin-art .brand-text small {
+  color: rgb(255 255 255 / 0.7);
+}
+
+/* Top row: logo on the left, sample label on the right. */
+.signin-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+
+.signin-pitch {
+  max-width: 30rem;
+  /* Extra room below the top row. */
+  margin-top: 2.5rem;
+}
+
+.signin-pitch h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.4rem;
+}
+
+.signin-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.signin-steps li {
+  position: relative;
+  display: flex;
+  gap: 1rem;
+  padding-bottom: 0.9rem;
+}
+
+.signin-steps li:last-child {
+  padding-bottom: 0;
+}
+
+.signin-steps li > span {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 1.5px solid rgb(255 255 255 / 0.45);
+  font-weight: 600;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+  background: #17336d;
+}
+
+/* The line joining one step to the next. */
+.signin-steps li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: calc(1rem - 1px);
+  top: 2rem;
+  bottom: 0;
+  width: 1.5px;
+  background: rgb(255 255 255 / 0.25);
+}
+
+.signin-steps strong {
+  display: block;
+  line-height: 2rem;
+}
+
+.signin-steps p {
+  color: rgb(255 255 255 / 0.72);
+  font-size: 0.95rem;
+}
+
+.signin-label {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  align-self: flex-start;
+  padding: 0.7rem 1rem 0.7rem 0.7rem;
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.28);
+  line-height: 1.35;
+}
+
+.signin-label svg {
+  display: block;
+}
+
+.signin-label small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.2rem;
+}
+
+.signin-label strong,
+.signin-label span {
+  display: block;
+  white-space: nowrap;
+}
+
+.signin-label span {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.signin-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+}
+
+.signin-main form {
+  width: 100%;
+  max-width: 22.5rem;
+}
+
+.signin-main form > * + * {
+  margin-top: 1.4rem;
+}
+
+.signin-heading h1 {
+  font-size: 1.9rem;
+  letter-spacing: -0.02em;
+}
+
+.signin-heading p {
+  margin-top: 0.35rem;
+}
+
+.signin-main button[type='submit'] {
+  width: 100%;
+  min-height: 3rem;
+}
+
+.signin-note {
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* A text box with a small button sitting inside its right edge. */
+.input-with-button {
+  position: relative;
+}
+
+.input-with-button input {
+  padding-right: 4.2rem;
+  min-height: 3rem;
+}
+
+.input-with-button button {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  min-height: 0;
+  padding: 0.3rem 0.6rem;
+  background: none;
+  border: 0;
+  color: var(--brand);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.input-with-button button:hover {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+}
+
+/* Short screens: drop the extras on the sign-in page rather than scroll. */
+@media (max-height: 660px) {
+  /* Tighten the spacing first, so the sample label still fits. */
+  .signin-art {
+    gap: 1.4rem;
+    padding-top: 1.25rem;
+    padding-bottom: 1.25rem;
+  }
+
+  .signin-pitch h2 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .signin-steps li {
+    padding-bottom: 0.6rem;
+  }
+
+}
+
+@media (max-height: 540px) {
+  .signin-label {
+    display: none;
+  }
+}
+
+@media (max-height: 430px) {
+  .signin-steps p {
+    display: none;
+  }
+}
+
+/* ---- Small screens ---- */
+
+@media (max-width: 860px) {
+  /* The top bar keeps its own height; the page takes the rest. Without
+     this the grid shares the screen height between them, leaving a big
+     empty band under the logo. */
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand {
+    flex: 1;
+    padding: 0;
+  }
+
+  .account {
+    padding: 0;
+    border: 0;
+  }
+
+  .account .avatar,
+  .account-text {
+    display: none;
+  }
+
+  /* Menu fixed to the bottom of the screen, like a phone app. */
+  .sidenav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    flex-direction: row;
+    gap: 0.25rem;
+    padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom));
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -2px 10px rgb(19 26 39 / 0.06);
+  }
+
+  .sidenav a {
+    flex: 1;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.15rem;
+    padding: 0.4rem 0.25rem;
+    font-size: 0.78rem;
+  }
+
+  .sidenav .icon {
+    width: 1.3rem;
+    height: 1.3rem;
+  }
+
+  .sidenav a.active {
+    background: var(--brand-tint);
+    color: var(--brand);
+  }
+
+  /* Room at the end of every page so the bottom menu never covers it. */
+  .main {
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
+  }
+
+  .page-header {
+    padding: 1.25rem 1rem 0;
+  }
+
+  .page {
+    padding: 1.1rem 1rem 3rem;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+  }
+
+  .split,
+  .split.wide {
+    grid-template-columns: 1fr;
+  }
+
+  .chart,
+  .split.wide .chart {
+    --plot-height: 10rem;
+  }
+
+  .signin {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .signin-art {
+    gap: 1.25rem;
+    padding: 1.25rem 1rem 1.5rem;
+  }
+
+  .signin-pitch h2 {
+    font-size: 1.35rem;
+    margin: 0;
+  }
+
+  /* Only the brand and headline on a phone, so the form is not pushed down. */
+  .signin-steps,
+  .signin-label {
+    display: none;
+  }
+
+  .signin-main {
+    align-items: flex-start;
+    padding: 1.75rem 1rem;
+  }
+
+  .card-foot button,
+  .card-foot .button {
+    flex: 1 1 100%;
+  }
+}
+
+@media print {
+  .sidebar,
+  .skip-link,
+  .no-print {
+    display: none !important;
+  }
+
+  :root {
+    background: #fff;
+  }
+
+  .app {
+    display: block;
+  }
+
+  .page {
+    padding: 0;
+  }
+
+  .card {
+    border: 0;
+    box-shadow: none;
+  }
+
+  .card-body {
+    padding: 0;
+  }
+
+  .label {
+    border: 0;
+  }
+}
