@@ -4,7 +4,7 @@ import PageHeader from '../components/PageHeader'
 import { useApi } from '../data/api'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
-import { formatDateTime } from '../data/types'
+import { formatDate, formatDateTime } from '../data/types'
 import type { ReceivedEntry } from '../data/types'
 
 function documentType(e: ReceivedEntry): string {
@@ -35,6 +35,7 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
   const columns: [string, (e: ReceivedEntry) => string][] = [
     ['Received', (e) => e.receivedAt],
     ['Filled in', (e) => e.filledAt],
+    ['Date', (e) => e.date ?? ''],
     ['Filled by', (e) => e.filledBy],
     ['Farmer name', (e) => e.farmerName],
     ['Document type', documentType],
@@ -242,6 +243,7 @@ function Users() {
                         />
                       </th>
                       <th>Farmer</th>
+                      <th>Date</th>
                       <th>Contact</th>
                       <th>Document</th>
                       <th>Seed</th>
@@ -278,6 +280,7 @@ function Users() {
                             {openId === e.id ? 'Hide details' : 'Show details'}
                           </button>
                         </td>
+                        <td>{formatDate(e.date ?? '')}</td>
                         <td className="mono">{e.contact}</td>
                         <td>
                           {documentType(e)}
@@ -295,7 +298,7 @@ function Users() {
                       </tr>
                       {openId === e.id && (
                         <tr className="detail-row">
-                          <td colSpan={11}>
+                          <td colSpan={12}>
                             <OtherAnswers entry={e} fields={custom(forms.farmer)} />
                             <DeviceDetails entry={e} />
                           </td>

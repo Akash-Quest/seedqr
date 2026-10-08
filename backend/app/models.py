@@ -45,6 +45,8 @@ class FarmerEntry(Base):
     # Made up by the phone, so the same entry sent twice is stored once.
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     lot_id: Mapped[str] = mapped_column(ForeignKey("seed_lots.id"), index=True)
+    # The date the farmer entered (YYYY-MM-DD), kept as text like the rest.
+    date: Mapped[str] = mapped_column(String(20), default="")
     filled_by: Mapped[str] = mapped_column(String(20))
     farmer_name: Mapped[str] = mapped_column(String(300))
     kyc_type: Mapped[str] = mapped_column(String(20), default="")

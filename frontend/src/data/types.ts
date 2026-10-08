@@ -35,6 +35,7 @@ export type KycType = '' | 'Aadhaar ID' | 'PAN ID' | 'Other'
 export type FarmerEntry = {
   id: string
   lotId: string
+  date: string // YYYY-MM-DD or ''
   filledBy: 'Farmer' | 'Field officer'
   farmerName: string
   kycType: KycType

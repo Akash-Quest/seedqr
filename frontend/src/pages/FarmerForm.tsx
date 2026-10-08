@@ -158,6 +158,7 @@ function Confirmation({ sent, onAnother }: { sent: boolean; onAnother: () => voi
 }
 
 const blank = {
+  date: '',
   filledBy: 'Farmer' as FarmerEntry['filledBy'],
   farmerName: '',
   kycType: '' as KycType,
@@ -323,6 +324,17 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       error: errors[field.key],
     }
     switch (field.builtin ? field.key : '') {
+      case 'date':
+        return (
+          <Field {...common}>
+            <input
+              id={field.key}
+              type="date"
+              value={values.date}
+              onChange={(e) => set({ date: e.target.value })}
+            />
+          </Field>
+        )
       case 'filledBy':
         return (
           <div key={field.key} className="full" role="group" aria-labelledby="filledByLabel">

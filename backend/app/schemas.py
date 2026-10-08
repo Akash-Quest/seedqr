@@ -124,6 +124,7 @@ class LotOut(Wire):
 class EntryIn(Wire):
     id: Annotated[str, StringConstraints(min_length=8, max_length=64)]
     lot_id: Annotated[str, StringConstraints(min_length=1, max_length=8)]
+    date: Annotated[str, StringConstraints(max_length=20)] = ""
     filled_by: Literal["Farmer", "Field officer"] = "Farmer"
     farmer_name: Required
     kyc_type: Literal["", "Aadhaar ID", "PAN ID", "Other"] = ""

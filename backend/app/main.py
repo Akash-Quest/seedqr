@@ -27,6 +27,7 @@ def add_missing_columns() -> None:
     wanted = {
         "farmer_entries": {
             "device": "JSON", "ip_address": "VARCHAR(64)", "lot_snapshot": "JSON", "extra": "JSON",
+            "date": "VARCHAR(20) DEFAULT ''",
         },
         "seed_lots": {"updated_at": "DATETIME", "deleted_at": "DATETIME", "extra": "JSON"},
     }

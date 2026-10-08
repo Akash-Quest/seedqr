@@ -70,6 +70,7 @@ export const DEFAULT_FORMS: Forms = {
     builtin('packingLocation', 'Packing location', 'text', { required: false }),
   ],
   farmer: [
+    builtin('date', 'Date', 'date'),
     builtin('filledBy', 'Who is filling this in?', 'choice', { options: ['Farmer', 'Field officer'] }),
     builtin('farmerName', 'Farmer name', 'text', { core: true }),
     builtin('kycType', 'Document / KYC type', 'kyc', { required: false }),

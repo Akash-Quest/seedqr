@@ -41,6 +41,7 @@ DEFAULTS = {
         _builtin("packingLocation", "Packing location", required=False),
     ],
     "farmer": [
+        _builtin("date", "Date", "date"),
         _builtin("filledBy", "Who is filling this in?", "choice", options=["Farmer", "Field officer"]),
         _builtin("farmerName", "Farmer name", core=True),
         _builtin("kycType", "Document / KYC type", "kyc", required=False),
