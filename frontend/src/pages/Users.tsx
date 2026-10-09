@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
-import { DownloadIcon, RefreshIcon } from '../components/Icons'
+import { DownloadIcon, RefreshIcon, UploadIcon } from '../components/Icons'
+import ImportEntries from '../components/ImportEntries'
 import PageHeader from '../components/PageHeader'
 import { useApi } from '../data/api'
 import { DEFAULT_FORMS } from '../data/forms'
@@ -99,6 +100,7 @@ function Users() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
 
   const needle = query.trim().toLowerCase()
   const shown = (data ?? []).filter((e) => {
@@ -145,6 +147,15 @@ function Users() {
           <RefreshIcon />
           Check for new
         </button>
+        <button
+          type="button"
+          className="secondary"
+          aria-expanded={importing}
+          onClick={() => setImporting(!importing)}
+        >
+          <UploadIcon />
+          Import from Excel
+        </button>
         {data && data.length > 0 && (
           <button
             type="button"
@@ -162,6 +173,13 @@ function Users() {
       </PageHeader>
 
       <div className="page">
+        {importing && (
+          <ImportEntries
+            fields={forms.farmer}
+            onImported={reload}
+            onClose={() => setImporting(false)}
+          />
+        )}
         {error ? (
           <p className="problem">{error}</p>
         ) : !data ? (

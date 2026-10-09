@@ -178,6 +178,10 @@ class EntryOut(EntryIn):
         return utc_iso(value)
 
 
+class Imported(Wire):
+    count: int
+
+
 class PublicLot(LotOut):
     """What a farmer's phone gets after scanning: the lot and both forms."""
 

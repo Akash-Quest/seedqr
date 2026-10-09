@@ -261,8 +261,16 @@ a:hover {
   justify-content: space-between;
   gap: 0.75rem 2rem;
   flex-wrap: wrap;
-  padding: 1.4rem 2.5rem 0;
+  padding: 0 2.5rem;
+  /* As tall as the name block at the top of the menu: its padding above
+     and below plus its two lines of text. */
+  min-height: calc(1.1rem + 2.4375rem + 1.25rem);
   /* Fills the space beside the sidebar on any screen width. */
+  /* Stays at the top while the page scrolls under it. */
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
 }
 
 .page-header p {
@@ -1910,7 +1918,11 @@ details[open] summary {
   }
 
   .page-header {
+    /* The menu bar is already stuck to the top of a phone screen. */
+    position: static;
     padding: 1.25rem 1rem 0;
+    min-height: 0;
+    background: none;
   }
 
   .page {

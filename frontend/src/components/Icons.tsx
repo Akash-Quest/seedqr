@@ -91,6 +91,14 @@ export function DownloadIcon() {
   )
 }
 
+export function UploadIcon() {
+  return (
+    <Icon>
+      <path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M5 20h14" />
+    </Icon>
+  )
+}
+
 export function RefreshIcon() {
   return (
     <Icon>

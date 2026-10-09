@@ -285,6 +285,39 @@ def save_entry(body: schemas.EntryIn, request: Request, db: Session = Depends(ge
     return {}
 
 
+MAX_IMPORT = 5000
+
+
+@app.post(
+    "/api/entries/import",
+    response_model=schemas.Imported,
+    dependencies=[Depends(require_admin)],
+)
+def import_entries(body: list[schemas.EntryIn], db: Session = Depends(get_db)):
+    """Entries the office uploads from an Excel file. The Users page reads
+    the file and sends its rows here. Either every row is saved or none."""
+    if len(body) > MAX_IMPORT:
+        raise HTTPException(400, f"A file can have at most {MAX_IMPORT} rows.")
+    snapshots: dict[str, dict] = {}
+    seen = set()
+    for number, row in enumerate(body, start=1):
+        if row.lot_id not in snapshots:
+            lot = db.get(SeedLot, row.lot_id)
+            if lot is None or lot.deleted_at is not None:
+                raise HTTPException(
+                    400, f"Row {number}: QR code “{row.lot_id}” is not recognised."
+                )
+            snapshots[row.lot_id] = schemas.LotOut.model_validate(lot).model_dump(mode="json")
+        if row.id in seen or db.get(FarmerEntry, row.id) is not None:
+            continue
+        seen.add(row.id)
+        db.add(
+            FarmerEntry(**row.model_dump(), ip_address="", lot_snapshot=snapshots[row.lot_id])
+        )
+    db.commit()
+    return {"count": len(seen)}
+
+
 @app.get(
     "/api/entries",
     response_model=list[schemas.EntryOut],
