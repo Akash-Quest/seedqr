@@ -1,47 +1,34 @@
-import hmac
+import csv
+import datetime as dt
+import io
 import secrets
 import socket
-import time
-from datetime import timedelta
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import delete, func, inspect, select, text
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import forms, schemas
+from . import auth, forms, schemas, stats
 from .config import BACKEND_DIR, settings
-from .database import Base, engine, get_db
-from .models import AdminSession, FarmerEntry, SeedLot, utc_now
+from .database import SessionLocal, get_db
+from .models import FarmerEntry, SeedLot, User, utc_now
 
-Base.metadata.create_all(engine)
+# The tables are made and changed by `python -m app.migrate`, not here: several
+# copies of the app start at once and must not all alter the database.
 
-
-def add_missing_columns() -> None:
-    """create_all() never changes a table that already exists, so columns
-    added to FarmerEntry later are added to the database here."""
-    wanted = {
-        "farmer_entries": {
-            "device": "JSON", "ip_address": "VARCHAR(64)", "lot_snapshot": "JSON", "extra": "JSON",
-            "date": "VARCHAR(20) DEFAULT ''",
-        },
-        "seed_lots": {"updated_at": "DATETIME", "deleted_at": "DATETIME", "extra": "JSON"},
-    }
-    with engine.begin() as connection:
-        for table, columns in wanted.items():
-            existing = {column["name"] for column in inspect(engine).get_columns(table)}
-            for name, kind in columns.items():
-                if name not in existing:
-                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {kind}"))
-
-
-add_missing_columns()
-
-app = FastAPI(title="SeedCode", docs_url="/api/docs", openapi_url="/api/openapi.json")
+app = FastAPI(
+    title="SeedCode",
+    docs_url="/api/docs" if settings.docs else None,
+    redoc_url=None,
+    openapi_url="/api/openapi.json" if settings.docs else None,
+)
+app.include_router(auth.router)
+app.include_router(stats.router)
 
 
 # The frontend reads every failure as {"error": "..."}.
@@ -58,68 +45,34 @@ async def invalid_request(_request: Request, _exc: RequestValidationError):
 
 
 @app.middleware("http")
-async def never_cache_api(request: Request, call_next):
+async def response_headers(request: Request, call_next):
     response = await call_next(request)
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
     return response
 
 
-def bearer(authorization: str) -> str:
-    return authorization.removeprefix("Bearer ").strip()
-
-
-def require_admin(
-    authorization: str = Header(default=""), db: Session = Depends(get_db)
-) -> None:
-    session = db.get(AdminSession, bearer(authorization))
-    if session is None or session.expires_at < utc_now():
-        raise HTTPException(401, "Please sign in again.")
-
-
-# ---- Sign-in -------------------------------------------------------------
-
-
-@app.post("/api/login", response_model=schemas.Token)
-def login(body: schemas.Login, db: Session = Depends(get_db)):
-    # Both are always compared, so the reply does not reveal which was wrong.
-    name_ok = hmac.compare_digest(
-        body.username.lower().encode(), settings.admin_username.strip().lower().encode()
-    )
-    password_ok = hmac.compare_digest(
-        body.password.encode(), settings.admin_password.encode()
-    )
-    if not (name_ok and password_ok):
-        time.sleep(0.6)  # slow down guessing
-        raise HTTPException(403, "That username or password is not correct.")
-
-    db.execute(delete(AdminSession).where(AdminSession.expires_at < utc_now()))
-    token = secrets.token_hex(32)
-    db.add(
-        AdminSession(
-            token=token,
-            expires_at=utc_now() + timedelta(hours=settings.session_hours),
-        )
-    )
-    db.commit()
-    return {"token": token, "username": settings.admin_username.strip()}
-
-
-@app.post("/api/logout", response_model=schemas.Ok)
-def logout(authorization: str = Header(default=""), db: Session = Depends(get_db)):
-    db.execute(delete(AdminSession).where(AdminSession.token == bearer(authorization)))
-    db.commit()
+@app.get("/api/health", response_model=schemas.Ok)
+def health(db: Session = Depends(get_db)):
+    """Public: asked by Docker and the load balancer. Fails if the database
+    cannot be reached, so a broken copy of the app is taken out of use."""
+    db.execute(text("SELECT 1"))
     return {}
 
 
 @app.get(
     "/api/address",
     response_model=schemas.Address,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.signed_in)],
 )
 def address():
     """This computer's address on the local network, so that a QR code made
     while the admin is on "localhost" still opens on a phone."""
+    if settings.lan_address.strip():
+        return {"lan": settings.lan_address.strip()}
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         # Asking which address would be used to reach the internet picks the
@@ -141,7 +94,7 @@ ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 @app.get(
     "/api/lots",
     response_model=list[schemas.LotOut],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.signed_in)],
 )
 def list_lots(db: Session = Depends(get_db)):
     rows = db.execute(
@@ -162,7 +115,7 @@ def list_lots(db: Session = Depends(get_db)):
 @app.post(
     "/api/lots",
     response_model=schemas.LotOut,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.editor)],
 )
 def create_lot(body: schemas.LotIn, db: Session = Depends(get_db)):
     extra = forms.check_lot(body, db)
@@ -186,7 +139,7 @@ def live_lot(lot_id: str, db: Session) -> SeedLot:
 @app.put(
     "/api/lots/{lot_id}",
     response_model=schemas.LotOut,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.editor)],
 )
 def update_lot(lot_id: str, body: schemas.LotIn, db: Session = Depends(get_db)):
     """Changes the details behind an existing QR code. The code itself only
@@ -205,7 +158,7 @@ def update_lot(lot_id: str, body: schemas.LotIn, db: Session = Depends(get_db)):
 @app.delete(
     "/api/lots/{lot_id}",
     response_model=schemas.Ok,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.editor)],
 )
 def delete_lot(lot_id: str, db: Session = Depends(get_db)):
     """Takes a lot out of use: it leaves the lists and its QR code stops
@@ -232,7 +185,7 @@ def get_lot(lot_id: str, db: Session = Depends(get_db)):
 @app.get(
     "/api/forms",
     response_model=dict[str, list[schemas.FieldSpec]],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.signed_in)],
 )
 def get_forms(db: Session = Depends(get_db)):
     return forms.all_forms(db)
@@ -241,7 +194,7 @@ def get_forms(db: Session = Depends(get_db)):
 @app.put(
     "/api/forms/{form}",
     response_model=list[schemas.FieldSpec],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.admin)],
 )
 def save_form(form: str, body: list[schemas.FieldSpec], db: Session = Depends(get_db)):
     if form not in forms.FORMS:
@@ -291,7 +244,7 @@ MAX_IMPORT = 5000
 @app.post(
     "/api/entries/import",
     response_model=schemas.Imported,
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(auth.editor)],
 )
 def import_entries(body: list[schemas.EntryIn], db: Session = Depends(get_db)):
     """Entries the office uploads from an Excel file. The Users page reads
@@ -318,23 +271,167 @@ def import_entries(body: list[schemas.EntryIn], db: Session = Depends(get_db)):
     return {"count": len(seen)}
 
 
-@app.get(
-    "/api/entries",
-    response_model=list[schemas.EntryOut],
-    dependencies=[Depends(require_admin)],
+# What the search box on the Users page looks through.
+SEARCHED = (
+    FarmerEntry.farmer_name,
+    FarmerEntry.contact,
+    FarmerEntry.channel,
+    SeedLot.crop,
+    SeedLot.batch_no,
 )
-def list_entries(db: Session = Depends(get_db)):
-    entries = db.scalars(
-        select(FarmerEntry).order_by(FarmerEntry.received_at.desc())
+
+
+def matching(q: str, start: dt.datetime | None, end: dt.datetime | None) -> list:
+    """The conditions for a search and a range of received times."""
+    wanted = []
+    if start:
+        wanted.append(FarmerEntry.received_at >= stats.naive_utc(start))
+    if end:
+        wanted.append(FarmerEntry.received_at < stats.naive_utc(end))
+    needle = " ".join(q.split())[:100]
+    if needle:
+        for mark in "\\%_":
+            needle = needle.replace(mark, "\\" + mark)
+        wanted.append(or_(*(column.ilike(f"%{needle}%", escape="\\") for column in SEARCHED)))
+    return wanted
+
+
+def entries_newest_first(wanted: list):
+    return (
+        select(FarmerEntry)
+        .join(FarmerEntry.lot)
+        .options(contains_eager(FarmerEntry.lot))
+        .where(*wanted)
+        .order_by(FarmerEntry.received_at.desc(), FarmerEntry.id)
+    )
+
+
+def entry_out(entry: FarmerEntry) -> schemas.EntryOut:
+    item = schemas.EntryOut.model_validate(entry)
+    # Show the seed details the farmer saw, not a later edit of the lot.
+    if entry.lot_snapshot:
+        item.lot = schemas.LotOut.model_validate(entry.lot_snapshot)
+    return item
+
+
+@app.get("/api/entries", response_model=schemas.EntryPage)
+def list_entries(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=1000),
+    q: str = "",
+    start: dt.datetime | None = Query(default=None, alias="from"),
+    end: dt.datetime | None = Query(default=None, alias="to"),
+    user: User = Depends(auth.signed_in),
+    db: Session = Depends(get_db),
+):
+    """One page of entries, newest first. `from` and `to` are times: from
+    is included, to is not."""
+    wanted = matching(q, start, end)
+    total = db.scalar(
+        select(func.count()).select_from(FarmerEntry).join(FarmerEntry.lot).where(*wanted)
+    )
+    rows = db.scalars(
+        entries_newest_first(wanted).limit(size).offset((page - 1) * size)
     ).all()
-    out = []
-    for entry in entries:
-        item = schemas.EntryOut.model_validate(entry)
-        # Show the seed details the farmer saw, not a later edit of the lot.
-        if entry.lot_snapshot:
-            item.lot = schemas.LotOut.model_validate(entry.lot_snapshot)
-        out.append(item)
-    return out
+    items = [entry_out(entry) for entry in rows]
+    if user.role == "viewer":
+        # A viewer never receives a full ID number, only its last digits.
+        for item in items:
+            if len(item.id_number) > 4:
+                item.id_number = "••••" + item.id_number[-4:]
+    return {"items": items, "total": total}
+
+
+def spreadsheet_safe(value) -> str:
+    """A farmer could type a formula as an answer. A leading apostrophe makes
+    Excel show it as plain text instead of running it."""
+    value = "" if value is None else str(value)
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
+def export_columns(db: Session) -> list[tuple[str, object]]:
+    """The spreadsheet's columns: a title and how to read it from an entry."""
+
+    def custom(form: str):
+        return [field for field in forms.load(form, db) if not field["builtin"]]
+
+    def answer(key: str):
+        return lambda e: (e.extra or {}).get(key, "")
+
+    def seed_answer(key: str):
+        return lambda e: e.lot.extra.get(key, "") if e.lot else ""
+
+    def seed(name: str):
+        return lambda e: getattr(e.lot, name) if e.lot else ""
+
+    return [
+        ("Received", lambda e: schemas.utc_iso(e.received_at)),
+        ("Filled in", lambda e: e.filled_at),
+        ("Date", lambda e: e.date),
+        ("Filled by", lambda e: e.filled_by),
+        ("Farmer name", lambda e: e.farmer_name),
+        ("Document type", lambda e: (e.kyc_other or "Other") if e.kyc_type == "Other" else e.kyc_type),
+        ("ID number", lambda e: e.id_number),
+        ("Contact number", lambda e: e.contact),
+        ("Distribution channel", lambda e: e.channel),
+        ("Landholding size", lambda e: e.landholding),
+        ("Quantity of seed given", lambda e: e.quantity),
+        *((field["label"], answer(field["key"])) for field in custom("farmer")),
+        ("Crop", seed("crop")),
+        ("Variety", seed("variety")),
+        ("Seed type", seed("seed_type")),
+        ("Batch/lot number", seed("batch_no")),
+        *((f"Seed: {field['label']}", seed_answer(field["key"])) for field in custom("lot")),
+        ("QR code", lambda e: e.lot_id),
+        ("Device fingerprint", lambda e: e.fingerprint),
+        ("Device ID", lambda e: e.device_id),
+        ("Network address", lambda e: e.ip_address),
+        ("Device details", lambda e: "; ".join(f"{k}: {v}" for k, v in e.device.items())),
+        ("User agent", lambda e: e.user_agent),
+    ]
+
+
+@app.post("/api/entries/export")
+def export_entries(
+    token: str = Form(default=""),
+    q: str = Form(default=""),
+    start: dt.datetime | None = Form(default=None, alias="from"),
+    end: dt.datetime | None = Form(default=None, alias="to"),
+    db: Session = Depends(get_db),
+):
+    """Every entry that matches, as a CSV file for Excel. Sent by a plain
+    form on the Users page so the browser saves it straight to disk, which
+    is why the token comes in the form and not in a header."""
+    if auth.user_for_token(token, db).role not in ("admin", "editor"):
+        raise HTTPException(403, "Your account is not allowed to do this.")
+    columns = export_columns(db)
+    query = entries_newest_first(matching(q, start, end)).execution_options(yield_per=500)
+
+    def lines():
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+
+        def line(cells) -> str:
+            writer.writerow(cells)
+            text_line = buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate()
+            return text_line
+
+        # The mark at the start tells Excel the file is UTF-8.
+        yield "\ufeff" + line([title for title, _ in columns])
+        # Its own session: the request's one may be closed while this runs.
+        with SessionLocal() as session:
+            for entry in session.scalars(query):
+                item = entry_out(entry)
+                yield line([spreadsheet_safe(read(item)) for _, read in columns])
+
+    name = f"farmer-entries-{utc_now():%Y-%m-%d}.csv"
+    return StreamingResponse(
+        lines(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
 
 
 # ---- The built frontend --------------------------------------------------

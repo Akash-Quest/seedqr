@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { APP_NAME, DEPARTMENT } from '../config'
-import { api, setToken, signedInUsername, useSignedIn } from '../data/api'
+import { ROLE_NAMES, api, isAdmin, setToken, signedInRole, signedInUsername, useSignedIn } from '../data/api'
 import SignIn from '../pages/SignIn'
-import { DashboardIcon, Logo, QrIcon, SignOutIcon, UsersIcon } from './Icons'
+import { DashboardIcon, Logo, QrIcon, SignOutIcon, StaffIcon, UsersIcon } from './Icons'
 
 function AdminLayout() {
   const signedIn = useSignedIn()
+  const role = signedInRole()
 
   function signOut() {
     api('/logout', {}).catch(() => {})
@@ -42,14 +43,20 @@ function AdminLayout() {
             <UsersIcon />
             Users
           </NavLink>
+          {isAdmin() && (
+            <NavLink to="/staff">
+              <StaffIcon />
+              Staff
+            </NavLink>
+          )}
         </nav>
 
         <div className="account">
           <span className="avatar" aria-hidden="true">
-            A
+            {ROLE_NAMES[role][0]}
           </span>
           <span className="account-text">
-            <strong>Admin</strong>
+            <strong>{ROLE_NAMES[role]}</strong>
             <span>{signedInUsername() || 'Office staff'}</span>
           </span>
           <button

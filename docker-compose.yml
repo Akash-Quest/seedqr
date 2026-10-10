@@ -1,0 +1,52 @@
+
+x-app: &app
+  build:
+    context: .
+    args:
+      VITE_PUBLIC_URL: ${PUBLIC_URL:-}
+  image: seedcode
+  environment: &app-environment
+    DATABASE_URL: postgresql+psycopg://seedcode:${POSTGRES_PASSWORD}@db:5432/seedcode
+    LAN_ADDRESS: ${LAN_ADDRESS:-}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: seedcode
+      POSTGRES_USER: seedcode
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seedcode -d seedcode"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Runs once at every start: brings the database up to date and, the first
+  # time, makes the admin account.
+  migrate:
+    <<: *app
+    command: ["python", "-m", "app.migrate"]
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+
+  app:
+    <<: *app
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${PORT:-8010}:8010"
+
+volumes:
+  db-data:

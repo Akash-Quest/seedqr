@@ -1466,6 +1466,32 @@ tr.detail-row h3 {
   margin-left: auto;
 }
 
+/* Previous / Next under a long table. */
+.card-foot.pager {
+  justify-content: center;
+}
+
+.card-foot.pager p {
+  color: var(--muted);
+  font-size: 0.95rem;
+  min-width: 9rem;
+  text-align: center;
+}
+
+/* ---- Staff accounts ---- */
+
+td select {
+  width: auto;
+}
+
+td.row-actions input {
+  width: 14rem;
+}
+
+td.row-actions span.error {
+  color: var(--red);
+}
+
 /* ---- Seed details ---- */
 
 .details {

@@ -4,7 +4,8 @@ import { QRCodeSVG } from 'qrcode.react'
 import Field from '../components/Field'
 import { Logo } from '../components/Icons'
 import { APP_NAME, DEPARTMENT, LOGIN_IMAGE } from '../config'
-import { api, rememberUsername, setToken } from '../data/api'
+import { api, rememberUser, setToken } from '../data/api'
+import type { Role } from '../data/api'
 
 const STEPS = [
   ['Add a seed lot', 'Enter the seed details once and print the QR label for its bags.'],
@@ -35,11 +36,11 @@ function SignIn() {
     }
     setBusy(true)
     try {
-      const signedIn = await api<{ token: string; username: string }>('/login', {
+      const signedIn = await api<{ token: string; username: string; role: Role }>('/login', {
         username: name,
         password,
       })
-      rememberUsername(signedIn.username || name)
+      rememberUser(signedIn.username || name, signedIn.role)
       setToken(signedIn.token)
     } catch (err) {
       setError((err as Error).message)

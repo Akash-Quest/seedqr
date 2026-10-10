@@ -9,7 +9,11 @@ engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     # SQLite connections are shared between FastAPI's worker threads.
-    connect_args={"check_same_thread": False} if is_sqlite else {},
+    **(
+        {"connect_args": {"check_same_thread": False}}
+        if is_sqlite
+        else {"pool_size": settings.db_pool_size, "max_overflow": settings.db_max_overflow}
+    ),
 )
 
 if is_sqlite:

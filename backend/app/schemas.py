@@ -178,6 +178,30 @@ class EntryOut(EntryIn):
         return utc_iso(value)
 
 
+class EntryPage(Wire):
+    """One page of the entries list, and how many match in all."""
+
+    items: list[EntryOut]
+    total: int
+
+
+class ChannelCount(Wire):
+    name: str
+    counts: dict[str, int]
+
+
+class Stats(Wire):
+    """The numbers behind the dashboard's charts (see stats.py)."""
+
+    # Every crop that has ever had an entry, oldest first.
+    series: list[str]
+    # Entries in the period of the same length just before this one.
+    previous: int
+    # One per day or week: how many entries each crop had.
+    columns: list[dict[str, int]]
+    channels: list[ChannelCount]
+
+
 class Imported(Wire):
     count: int
 
@@ -189,9 +213,39 @@ class PublicLot(LotOut):
     farmer_fields: list[FieldSpec] = []
 
 
+Role = Literal["admin", "editor", "viewer"]
+Password = Annotated[str, StringConstraints(min_length=8, max_length=200)]
+
+
 class Token(Wire):
     token: str
     username: str
+    role: Role
+
+
+class StaffNew(Wire):
+    username: Annotated[str, StringConstraints(min_length=3, max_length=100)]
+    password: Password
+    role: Role
+
+
+class StaffChange(Wire):
+    role: Role
+    active: bool
+    # Left out to keep the password as it is.
+    password: Password | None = None
+
+
+class StaffOut(Wire):
+    id: int
+    username: str
+    role: Role
+    active: bool
+    created_at: dt.datetime
+
+    @field_serializer("created_at")
+    def created_utc(self, value: dt.datetime) -> str:
+        return utc_iso(value)
 
 
 class Address(Wire):

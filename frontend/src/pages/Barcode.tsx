@@ -14,7 +14,7 @@ import {
 } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
 import { DEPARTMENT, PUBLIC_URL } from '../config'
-import { api, useApi } from '../data/api'
+import { api, canEdit, isAdmin, useApi } from '../data/api'
 import { DEFAULT_FORMS, answer, checkCustom } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { formatDate } from '../data/types'
@@ -42,11 +42,15 @@ function Barcode() {
   const [params, setParams] = useSearchParams()
   const lotFields = forms.data?.lot ?? DEFAULT_FORMS.lot
 
+  // What this account's role allows. The server checks again.
+  const mayEdit = canEdit()
+  const mayEditForms = isAdmin()
+
   const selected = lots?.find((lot) => lot.id === params.get('lot'))
-  const editing = lots?.find((lot) => lot.id === params.get('edit'))
-  const editingForms = params.has('fields')
+  const editing = mayEdit ? lots?.find((lot) => lot.id === params.get('edit')) : undefined
+  const editingForms = mayEditForms && params.has('fields')
   // With no lots yet there is nothing to list, so start on the form.
-  const adding = params.has('new') || (lots?.length === 0 && !editingForms)
+  const adding = mayEdit && (params.has('new') || (lots?.length === 0 && !editingForms))
 
   return (
     <>
@@ -73,22 +77,26 @@ function Barcode() {
                 Seed lots
                 <span className="badge">{lots.length}</span>
               </button>
-              <button
-                type="button"
-                className={adding ? 'on' : ''}
-                aria-pressed={adding}
-                onClick={() => setParams({ new: '1' })}
-              >
-                New seed lot
-              </button>
-              <button
-                type="button"
-                className={editingForms ? 'on' : ''}
-                aria-pressed={editingForms}
-                onClick={() => setParams({ fields: '1' })}
-              >
-                Form fields
-              </button>
+              {mayEdit && (
+                <button
+                  type="button"
+                  className={adding ? 'on' : ''}
+                  aria-pressed={adding}
+                  onClick={() => setParams({ new: '1' })}
+                >
+                  New seed lot
+                </button>
+              )}
+              {mayEditForms && (
+                <button
+                  type="button"
+                  className={editingForms ? 'on' : ''}
+                  aria-pressed={editingForms}
+                  onClick={() => setParams({ fields: '1' })}
+                >
+                  Form fields
+                </button>
+              )}
             </div>
 
             {editingForms ? (
@@ -139,6 +147,7 @@ function Barcode() {
                   <QrLabel
                     key={selected.id}
                     lot={selected}
+                    mayEdit={mayEdit}
                     onEdit={() => setParams({ edit: selected.id })}
                     onDeleted={() => {
                       setParams({})
@@ -147,9 +156,16 @@ function Barcode() {
                     onClose={() => setParams({})}
                   />
                 )}
+                {lots.length === 0 && (
+                  <p className="empty">
+                    <strong>No seed lots yet</strong>
+                    They appear here once someone in the office adds one.
+                  </p>
+                )}
                 <LotTable
                   lots={lots}
                   selectedId={selected?.id}
+                  mayEdit={mayEdit}
                   onShow={(id) => {
                     setParams({ lot: id })
                     window.scrollTo(0, 0)
@@ -292,12 +308,14 @@ function LotForm({ fields, lot, onCancel, onSaved }: LotFormProps) {
 type LotTableProps = {
   lots: SeedLot[]
   selectedId?: string
+  // False for an account that may only look.
+  mayEdit: boolean
   onShow: (id: string) => void
   onEdit: (id: string) => void
   onDeleted: () => void
 }
 
-function LotTable({ lots, selectedId, onShow, onEdit, onDeleted }: LotTableProps) {
+function LotTable({ lots, selectedId, mayEdit, onShow, onEdit, onDeleted }: LotTableProps) {
   // The row whose delete button was pressed and is waiting for a yes or no.
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [failure, setFailure] = useState('')
@@ -381,27 +399,31 @@ function LotTable({ lots, selectedId, onShow, onEdit, onDeleted }: LotTableProps
                         Show QR code
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Change details of ${lot.crop}, ${lot.variety}`}
-                      title="Change details"
-                      onClick={() => onEdit(lot.id)}
-                    >
-                      <EditIcon />
-                    </button>
-                    <button
-                      type="button"
-                      className="icon-button danger"
-                      aria-label={`Delete ${lot.crop}, ${lot.variety}`}
-                      title="Delete"
-                      onClick={() => {
-                        setConfirmId(lot.id)
-                        setFailure('')
-                      }}
-                    >
-                      <TrashIcon />
-                    </button>
+                    {mayEdit && (
+                      <>
+                        <button
+                          type="button"
+                          className="icon-button"
+                          aria-label={`Change details of ${lot.crop}, ${lot.variety}`}
+                          title="Change details"
+                          onClick={() => onEdit(lot.id)}
+                        >
+                          <EditIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className="icon-button danger"
+                          aria-label={`Delete ${lot.crop}, ${lot.variety}`}
+                          title="Delete"
+                          onClick={() => {
+                            setConfirmId(lot.id)
+                            setFailure('')
+                          }}
+                        >
+                          <TrashIcon />
+                        </button>
+                      </>
+                    )}
                   </td>
                 )}
               </tr>
@@ -415,12 +437,14 @@ function LotTable({ lots, selectedId, onShow, onEdit, onDeleted }: LotTableProps
 
 type QrLabelProps = {
   lot: SeedLot
+  // False for an account that may only look.
+  mayEdit: boolean
   onEdit: () => void
   onDeleted: () => void
   onClose: () => void
 }
 
-function QrLabel({ lot, onEdit, onDeleted, onClose }: QrLabelProps) {
+function QrLabel({ lot, mayEdit, onEdit, onDeleted, onClose }: QrLabelProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   // Deleting asks for a second press, since printed labels stop working.
   const [confirming, setConfirming] = useState(false)
@@ -530,12 +554,16 @@ function QrLabel({ lot, onEdit, onDeleted, onClose }: QrLabelProps) {
         </div>
       ) : (
         <div className="card-foot end no-print">
-          <button type="button" className="secondary danger" onClick={() => setConfirming(true)}>
-            Delete
-          </button>
-          <button type="button" className="secondary" onClick={onEdit}>
-            Change details
-          </button>
+          {mayEdit && (
+            <>
+              <button type="button" className="secondary danger" onClick={() => setConfirming(true)}>
+                Delete
+              </button>
+              <button type="button" className="secondary" onClick={onEdit}>
+                Change details
+              </button>
+            </>
+          )}
           <button type="button" className="secondary" onClick={download}>
             <DownloadIcon />
             Download QR code

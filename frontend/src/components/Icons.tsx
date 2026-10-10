@@ -55,6 +55,17 @@ export function UsersIcon() {
   )
 }
 
+// A person with a badge: the office's own accounts.
+export function StaffIcon() {
+  return (
+    <Icon>
+      <circle cx="10" cy="8" r="3.5" />
+      <path d="M3.5 20v-1a5 5 0 0 1 5-5h3" />
+      <path d="M17.5 12.5l3 1.2v2.6c0 2-1.3 3.4-3 4.2-1.7-.8-3-2.2-3-4.2v-2.6z" />
+    </Icon>
+  )
+}
+
 export function QrIcon() {
   return (
     <Icon>

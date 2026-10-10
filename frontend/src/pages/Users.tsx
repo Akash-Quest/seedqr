@@ -1,12 +1,12 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { DownloadIcon, RefreshIcon, UploadIcon } from '../components/Icons'
 import ImportEntries from '../components/ImportEntries'
 import PageHeader from '../components/PageHeader'
-import { useApi } from '../data/api'
+import { canEdit, currentToken, useApi } from '../data/api'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { formatDate, formatDateTime } from '../data/types'
-import type { ReceivedEntry } from '../data/types'
+import type { EntryPage, ReceivedEntry } from '../data/types'
 
 function documentType(e: ReceivedEntry): string {
   return e.kycType === 'Other' ? e.kycOther || 'Other' : e.kycType
@@ -92,39 +92,83 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
   }).toFile('farmer-entries.xlsx')
 }
 
+// Rows on one page of the table.
+const PAGE_SIZE = 1000
+
+// The start of a day (YYYY-MM-DD) on this computer's clock, as the exact
+// time the server understands. `add` moves it on by that many days.
+function dayStart(day: string, add = 0): string {
+  const date = new Date(day + 'T00:00:00')
+  date.setDate(date.getDate() + add)
+  return date.toISOString()
+}
+
+type Filters = { q: string; from: string; to: string }
+
+// Every entry that matches, as a file. The browser sends this form itself
+// and saves the answer straight to disk, so a very long list never has to
+// fit in the page's memory.
+function exportMatching(filters: Filters) {
+  const form = document.createElement('form')
+  form.method = 'post'
+  form.action = '/api/entries/export'
+  const fields = { token: currentToken(), ...filters }
+  for (const [name, value] of Object.entries(fields)) {
+    if (!value) continue
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    form.append(input)
+  }
+  document.body.append(form)
+  form.submit()
+  form.remove()
+}
+
 function Users() {
-  const { data, error, reload } = useApi<ReceivedEntry[]>('/entries')
-  const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
   const [query, setQuery] = useState('')
+  // What is searched for: the box's text, once typing has paused.
+  const [needle, setNeedle] = useState('')
   // Date range, as YYYY-MM-DD. Empty means no limit on that side.
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
+  const [page, setPage] = useState(1)
   const [openId, setOpenId] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
 
-  const needle = query.trim().toLowerCase()
-  const shown = (data ?? []).filter((e) => {
-    // The day the entry was received, in this computer's time zone.
-    const day = new Date(e.receivedAt).toLocaleDateString('en-CA')
-    if (from && day < from) return false
-    if (to && day > to) return false
-    return (
-      needle === '' ||
-      [e.farmerName, e.contact, e.channel, e.lot?.crop, e.lot?.batchNo]
-        .join(' ')
-        .toLowerCase()
-        .includes(needle)
-    )
-  })
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNeedle(query.trim())
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  // The days are the ones on this computer's clock.
+  const filters: Filters = {
+    q: needle,
+    from: from ? dayStart(from) : '',
+    to: to ? dayStart(to, 1) : '',
+  }
+  const search = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
+  for (const [name, value] of Object.entries(filters)) if (value) search.set(name, value)
+
+  const { data, error, reload } = useApi<EntryPage>(`/entries?${search}`)
+  const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
+
+  const shown = data?.items ?? []
+  const total = data?.total ?? 0
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const first = (page - 1) * PAGE_SIZE + 1
   const filtered = needle !== '' || from !== '' || to !== ''
+  const number = (n: number) => n.toLocaleString('en-IN')
 
   // Ticked rows. Only ticks on rows that are currently shown count, so a
-  // row hidden by the search can never slip into the export unseen.
+  // row on another page can never slip into the export unseen.
   const [ticked, setTicked] = useState<Set<string>>(new Set())
   const picked = shown.filter((e) => ticked.has(e.id))
   const allPicked = shown.length > 0 && picked.length === shown.length
-  // With nothing ticked, the export is everything the filters show.
-  const toExport = picked.length > 0 ? picked : shown
 
   function toggle(id: string) {
     const next = new Set(ticked)
@@ -147,28 +191,30 @@ function Users() {
           <RefreshIcon />
           Check for new
         </button>
-        <button
-          type="button"
-          className="secondary"
-          aria-expanded={importing}
-          onClick={() => setImporting(!importing)}
-        >
-          <UploadIcon />
-          Import from Excel
-        </button>
-        {data && data.length > 0 && (
+        {canEdit() && (
           <button
             type="button"
-            disabled={toExport.length === 0}
-            onClick={() => void downloadExcel(toExport, forms)}
+            className="secondary"
+            aria-expanded={importing}
+            onClick={() => setImporting(!importing)}
           >
-            <DownloadIcon />
-            {picked.length > 0
-              ? `Export ${picked.length} selected`
-              : filtered
-                ? `Export ${shown.length} shown`
-                : 'Export all to Excel'}
+            <UploadIcon />
+            Import from Excel
           </button>
+        )}
+        {picked.length > 0 ? (
+          <button type="button" onClick={() => void downloadExcel(picked, forms)}>
+            <DownloadIcon />
+            Export {picked.length} selected
+          </button>
+        ) : (
+          canEdit() &&
+          total > 0 && (
+            <button type="button" onClick={() => exportMatching(filters)}>
+              <DownloadIcon />
+              {filtered ? `Export ${number(total)} matching` : 'Export all'}
+            </button>
+          )
         )}
       </PageHeader>
 
@@ -201,7 +247,10 @@ function Users() {
                   type="date"
                   value={from}
                   max={to || undefined}
-                  onChange={(e) => setFrom(e.target.value)}
+                  onChange={(e) => {
+                    setFrom(e.target.value)
+                    setPage(1)
+                  }}
                 />
               </label>
               <label className="date-filter">
@@ -210,7 +259,10 @@ function Users() {
                   type="date"
                   value={to}
                   min={from || undefined}
-                  onChange={(e) => setTo(e.target.value)}
+                  onChange={(e) => {
+                    setTo(e.target.value)
+                    setPage(1)
+                  }}
                 />
               </label>
               {filtered && (
@@ -221,6 +273,7 @@ function Users() {
                     setQuery('')
                     setFrom('')
                     setTo('')
+                    setPage(1)
                   }}
                 >
                   Clear
@@ -228,17 +281,19 @@ function Users() {
               )}
               <p className="filter-count">
                 {picked.length > 0 && `${picked.length} selected · `}
-                Showing {shown.length} of {data.length}
+                {total === 0
+                  ? 'Showing 0'
+                  : `Showing ${number(first)} to ${number(first + shown.length - 1)} of ${number(total)}`}
               </p>
             </div>
 
-            {data.length === 0 ? (
+            {total === 0 && !filtered ? (
               <p className="empty">
                 <strong>Nothing has come in yet</strong>
                 Entries appear here when a farmer scans a bag and submits the
                 form.
               </p>
-            ) : shown.length === 0 ? (
+            ) : total === 0 ? (
               <p className="empty">
                 <strong>No entries match</strong>
                 Try a shorter search or a wider date range.
@@ -251,7 +306,7 @@ function Users() {
                       <th className="tick">
                         <input
                           type="checkbox"
-                          aria-label="Select all shown entries"
+                          aria-label="Select all entries on this page"
                           checked={allPicked}
                           ref={(box) => {
                             // Shows a dash when only some rows are ticked.
@@ -327,6 +382,30 @@ function Users() {
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {pages > 1 && (
+              <nav className="card-foot pager" aria-label="Pages of entries">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={page <= 1}
+                  onClick={() => setPage(page - 1)}
+                >
+                  Previous
+                </button>
+                <p>
+                  Page {number(page)} of {number(pages)}
+                </p>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={page >= pages}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next
+                </button>
+              </nav>
             )}
           </section>
         )}

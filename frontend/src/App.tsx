@@ -4,6 +4,7 @@ import PageHeader from './components/PageHeader'
 import Barcode from './pages/Barcode'
 import Dashboard from './pages/Dashboard'
 import FarmerForm from './pages/FarmerForm'
+import Staff from './pages/Staff'
 import Users from './pages/Users'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
         <Route index element={<Dashboard />} />
         <Route path="users" element={<Users />} />
         <Route path="barcode" element={<Barcode />} />
+        <Route path="staff" element={<Staff />} />
         <Route
           path="*"
           element={

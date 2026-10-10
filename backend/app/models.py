@@ -85,8 +85,27 @@ class FormSettings(Base):
     updated_at: Mapped[dt.datetime | None]
 
 
+class User(Base):
+    """Someone in the office who can sign in. Farmers never have one."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Always stored in lower case, so signing in ignores capitals.
+    username: Mapped[str] = mapped_column(String(100), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    # "admin", "editor" or "viewer" (see auth.py).
+    role: Mapped[str] = mapped_column(String(10))
+    # Switched off instead of deleted, so the account can come back.
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(default=utc_now)
+
+
 class AdminSession(Base):
     __tablename__ = "admin_sessions"
 
+    # A hash of the token the browser holds, so reading this table is not
+    # enough to sign in as someone.
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     expires_at: Mapped[dt.datetime]

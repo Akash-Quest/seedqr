@@ -24,12 +24,23 @@ export function setToken(next: string | null) {
   listeners.forEach((listener) => listener())
 }
 
-// Who is signed in, for showing in the sidebar.
-const NAME_KEY = 'seedcode.username'
+// Who is signed in, for showing in the sidebar and for hiding what their
+// role may not do. The server checks the role again on every request.
+export type Role = 'admin' | 'editor' | 'viewer'
 
-export function rememberUsername(name: string) {
+export const ROLE_NAMES: Record<Role, string> = {
+  admin: 'Admin',
+  editor: 'Editor',
+  viewer: 'Viewer',
+}
+
+const NAME_KEY = 'seedcode.username'
+const ROLE_KEY = 'seedcode.role'
+
+export function rememberUser(name: string, role: Role) {
   try {
     sessionStorage.setItem(NAME_KEY, name)
+    sessionStorage.setItem(ROLE_KEY, role)
   } catch {
     // Not shown after a reload, nothing else is affected.
   }
@@ -42,6 +53,30 @@ export function signedInUsername(): string {
   } catch {
     return ''
   }
+}
+
+export function signedInRole(): Role {
+  try {
+    const role = sessionStorage.getItem(ROLE_KEY)
+    return role === 'admin' || role === 'editor' ? role : 'viewer'
+  } catch {
+    return 'viewer'
+  }
+}
+
+// Adds, changes and deletes seed lots; imports and exports entries.
+export function canEdit(): boolean {
+  return signedInRole() !== 'viewer'
+}
+
+// Also changes the form questions and manages staff accounts.
+export function isAdmin(): boolean {
+  return signedInRole() === 'admin'
+}
+
+// For the one request the browser makes by itself (the export download).
+export function currentToken(): string {
+  return token ?? ''
 }
 
 export function useSignedIn(): boolean {
@@ -89,19 +124,25 @@ export async function api<T>(
 }
 
 export function useApi<T>(path: string) {
-  const [state, setState] = useState<{ data?: T; error?: string }>({})
+  const [state, setState] = useState<{ data?: T; error?: string; path?: string }>({})
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let live = true
     api<T>(path).then(
-      (data) => live && setState({ data }),
-      (err: Error) => live && setState({ error: err.message }),
+      (data) => live && setState({ data, path }),
+      (err: Error) => live && setState({ error: err.message, path }),
     )
     return () => {
       live = false
     }
   }, [path, attempt])
 
-  return { ...state, reload: () => setAttempt((n) => n + 1) }
+  return {
+    data: state.data,
+    error: state.error,
+    // False while the answer shown is still the one for an earlier path.
+    fresh: state.path === path,
+    reload: () => setAttempt((n) => n + 1),
+  }
 }

@@ -62,6 +62,32 @@ export type ReceivedEntry = FarmerEntry & {
   lot: SeedLot | null
 }
 
+// One page of the entries list, and how many match in all.
+export type EntryPage = { items: ReceivedEntry[]; total: number }
+
+// How many entries each crop had, by crop name.
+export type CropCounts = Record<string, number>
+
+// The numbers behind the dashboard's charts, counted by the server.
+export type Stats = {
+  // Every crop that has ever had an entry, oldest first.
+  series: string[]
+  // Entries in the period of the same length just before this one.
+  previous: number
+  // One per day or week.
+  columns: CropCounts[]
+  channels: { name: string; counts: CropCounts }[]
+}
+
+// Someone in the office who can sign in.
+export type StaffAccount = {
+  id: number
+  username: string
+  role: 'admin' | 'editor' | 'viewer'
+  active: boolean
+  createdAt: string
+}
+
 export function formatDate(iso: string): string {
   if (!iso) return ''
   const date = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso)

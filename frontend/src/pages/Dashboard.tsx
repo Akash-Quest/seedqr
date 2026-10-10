@@ -7,11 +7,11 @@ import type { Column } from '../components/ColumnChart'
 import Donut from '../components/Donut'
 import { PlusIcon } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
-import { useApi } from '../data/api'
-import { cropSeries, total } from '../data/series'
+import { canEdit, useApi } from '../data/api'
+import { cropSeries, sum, total } from '../data/series'
 import type { Part, Series } from '../data/series'
 import { formatDateTime } from '../data/types'
-import type { ReceivedEntry, SeedLot } from '../data/types'
+import type { CropCounts, EntryPage, SeedLot, Stats } from '../data/types'
 
 const RANGES = [
   { days: 7, label: 'Last 7 days' },
@@ -29,26 +29,15 @@ function dayMonth(time: number): string {
   return new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
-type Split = (entries: ReceivedEntry[]) => Part[]
+type Split = (counts: CropCounts) => Part[]
 
-// One column per day, or per week for the 90 day view.
-function buildColumns(
-  entries: ReceivedEntry[],
-  start: number,
-  days: number,
-  split: Split,
-): Column[] {
-  const size = days > 30 ? 7 : 1
-  const count = Math.ceil(days / size)
-  const every = days === 7 ? 1 : days === 30 ? 5 : 2
+// One column per day, or per week for the 90 day view. The server has
+// already counted the entries for each.
+function buildColumns(counts: CropCounts[], start: number, size: number, split: Split): Column[] {
+  const count = counts.length
+  const every = count === 7 ? 1 : size === 1 ? 5 : 2
 
-  const groups: ReceivedEntry[][] = Array.from({ length: count }, () => [])
-  for (const entry of entries) {
-    const index = Math.floor((startOfDay(new Date(entry.receivedAt)) - start) / (size * DAY))
-    groups[index]?.push(entry)
-  }
-
-  return groups.map((group, i) => {
+  return counts.map((column, i) => {
     const from = start + i * size * DAY
     const to = from + (size - 1) * DAY
     const weekday = new Date(from).toLocaleDateString('en-GB', { weekday: 'short' })
@@ -57,22 +46,9 @@ function buildColumns(
       // Counted back from the newest column so "today" always has a label.
       tick: (count - 1 - i) % every === 0 ? dayMonth(from) : '',
       name: size === 1 ? `${weekday} ${dayMonth(from)}` : `${dayMonth(from)} to ${dayMonth(to)}`,
-      parts: split(group),
+      parts: split(column),
     }
   })
-}
-
-// The busiest distribution channels, each bar split by crop.
-function channelRows(entries: ReceivedEntry[], split: Split, limit: number): BarRow[] {
-  const groups = new Map<string, ReceivedEntry[]>()
-  for (const entry of entries) {
-    const name = entry.channel.trim() || 'Not given'
-    groups.set(name, [...(groups.get(name) ?? []), entry])
-  }
-  return [...groups]
-    .map(([name, group]) => ({ name, parts: split(group) }))
-    .sort((a, b) => total(b.parts) - total(a.parts) || a.name.localeCompare(b.name))
-    .slice(0, limit)
 }
 
 function Legend({ series }: { series: Series[] }) {
@@ -89,10 +65,18 @@ function Legend({ series }: { series: Series[] }) {
 }
 
 function Dashboard() {
-  const lots = useApi<SeedLot[]>('/lots')
-  const entries = useApi<ReceivedEntry[]>('/entries')
   const [now] = useState(() => new Date())
   const [days, setDays] = useState(7)
+
+  // The 90 day view is drawn in whole weeks, so it covers 91 days.
+  const size = days > 30 ? 7 : 1
+  const span = Math.ceil(days / size) * size
+  const start = startOfDay(now) - (span - 1) * DAY
+  const since = encodeURIComponent(new Date(start).toISOString())
+
+  const lots = useApi<SeedLot[]>('/lots')
+  const stats = useApi<Stats>(`/stats?start=${since}&days=${span}&size=${size}`)
+  const latest = useApi<EntryPage>(`/entries?size=5&from=${since}`)
 
   const today = now.toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -100,21 +84,25 @@ function Dashboard() {
     month: 'long',
     year: 'numeric',
   })
-  const error = lots.error || entries.error
+  const error = lots.error || stats.error || latest.error
+  // Wait for the numbers of the period now chosen, not the one before.
+  const ready = lots.data && stats.data && latest.data && stats.fresh && latest.fresh
 
   return (
     <>
       <PageHeader title="Dashboard" subtitle={today}>
-        <Link className="button" to="/barcode?new=1">
-          <PlusIcon />
-          Add a seed lot
-        </Link>
+        {canEdit() && (
+          <Link className="button" to="/barcode?new=1">
+            <PlusIcon />
+            Add a seed lot
+          </Link>
+        )}
       </PageHeader>
 
       <div className="page">
         {error ? (
           <p className="problem">{error}</p>
-        ) : !lots.data || !entries.data ? (
+        ) : !lots.data || !stats.data || !latest.data ? (
           <p className="muted">Loading…</p>
         ) : (
           <>
@@ -132,7 +120,18 @@ function Dashboard() {
               ))}
             </div>
 
-            <Overview lots={lots.data} entries={entries.data} now={now} days={days} />
+            {ready ? (
+              <Overview
+                lots={lots.data}
+                stats={stats.data}
+                latest={latest.data.items}
+                start={start}
+                size={size}
+                days={days}
+              />
+            ) : (
+              <p className="muted">Loading…</p>
+            )}
           </>
         )}
       </div>
@@ -142,35 +141,34 @@ function Dashboard() {
 
 type OverviewProps = {
   lots: SeedLot[]
-  entries: ReceivedEntry[]
-  now: Date
+  stats: Stats
+  // The newest few entries of the period.
+  latest: EntryPage['items']
+  // Midnight at the start of the period, and how many days a column covers.
+  start: number
+  size: number
   days: number
 }
 
-function Overview({ lots, entries, now, days }: OverviewProps) {
-  // The 90 day view is drawn in whole weeks, so it covers 91 days.
-  const span = days > 30 ? Math.ceil(days / 7) * 7 : days
-  const start = startOfDay(now) - (span - 1) * DAY
-  const received = (e: ReceivedEntry) => new Date(e.receivedAt).getTime()
-
-  const current = entries.filter((e) => received(e) >= start)
-  const previous = entries.filter(
-    (e) => received(e) >= start - span * DAY && received(e) < start,
-  )
+function Overview({ lots, stats, latest, start, size, days }: OverviewProps) {
+  const crops = cropSeries(stats.series)
+  const cropParts = crops.split(sum(stats.columns))
+  const current = total(cropParts)
   const newLots = lots.filter((lot) => new Date(lot.createdAt).getTime() >= start)
   const unused = newLots.filter((lot) => !lot.entryCount)
   const period = `last ${days} days`
-  // Colours come from all entries, so a crop keeps its colour in every period.
-  const crops = cropSeries(entries)
-  const cropParts = crops.split(current)
+  const channelRows: BarRow[] = stats.channels.map((channel) => ({
+    name: channel.name,
+    parts: crops.split(channel.counts),
+  }))
 
   return (
     <>
       <div className="stats">
         <div className="card stat">
           <p className="stat-label">Farmer entries</p>
-          <p className="stat-value">{current.length}</p>
-          <Change now={current.length} before={previous.length} days={days} />
+          <p className="stat-value">{current.toLocaleString('en-IN')}</p>
+          <Change now={current} before={stats.previous} days={days} />
         </div>
         
         <div className="card stat">
@@ -191,12 +189,12 @@ function Overview({ lots, entries, now, days }: OverviewProps) {
         <section className="card">
           <div className="card-head">
             <h2>Farmer entries {days > 30 ? 'per week' : 'per day'}, by crop</h2>
-            <p>{current.length} in the {period}</p>
+            <p>{current.toLocaleString('en-IN')} in the {period}</p>
           </div>
           <div className="card-body">
             <Legend series={cropParts} />
             <ColumnChart
-              columns={buildColumns(current, start, span, crops.split)}
+              columns={buildColumns(stats.columns, start, size, crops.split)}
               unit={['entry', 'entries']}
             />
           </div>
@@ -207,7 +205,7 @@ function Overview({ lots, entries, now, days }: OverviewProps) {
             <h2>Share by crop</h2>
             <p>{period}</p>
           </div>
-          {current.length === 0 ? (
+          {current === 0 ? (
             <p className="empty">No entries in this period.</p>
           ) : (
             <div className="card-body">
@@ -223,11 +221,11 @@ function Overview({ lots, entries, now, days }: OverviewProps) {
             <h2>Busiest distribution channels</h2>
             <p>{period}</p>
           </div>
-          {current.length === 0 ? (
+          {current === 0 ? (
             <p className="empty">No entries in this period.</p>
           ) : (
             <div className="card-body">
-              <BarList rows={channelRows(current, crops.split, 5)} />
+              <BarList rows={channelRows} />
             </div>
           )}
         </section>
@@ -235,9 +233,9 @@ function Overview({ lots, entries, now, days }: OverviewProps) {
         <section className="card">
           <div className="card-head">
             <h2>Latest farmer entries</h2>
-            {current.length > 0 && <Link to="/users">See all</Link>}
+            {current > 0 && <Link to="/users">See all</Link>}
           </div>
-          {current.length === 0 ? (
+          {current === 0 ? (
             <p className="empty">
               <strong>Nothing came in during the {period}</strong>
               {lots.length === 0
@@ -256,7 +254,7 @@ function Overview({ lots, entries, now, days }: OverviewProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {current.slice(0, 5).map((e) => (
+                  {latest.map((e) => (
                     <tr key={e.id}>
                       <td className="strong">{e.farmerName}</td>
                       <td>{e.lot?.crop}</td>
@@ -307,7 +305,7 @@ function Change({ now, before, days }: { now: number; before: number; days: numb
       <span className={difference > 0 ? 'up' : 'down'} aria-hidden="true">
         {difference > 0 ? '▲' : '▼'}
       </span>{' '}
-      {Math.abs(difference)} {difference > 0 ? 'more' : 'fewer'} than the {days} days
+      {Math.abs(difference).toLocaleString('en-IN')} {difference > 0 ? 'more' : 'fewer'} than the {days} days
       before
     </p>
   )

@@ -8,7 +8,9 @@ dist
 .venv
 __pycache__
 backend/.env
+/.env
 backend/*.db
+backend/*.sql
 
 # Editors
 .vscode/*
