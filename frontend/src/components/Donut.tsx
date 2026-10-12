@@ -11,15 +11,20 @@ type DonutProps = {
   parts: Part[]
   // Word for what is being counted, shown in the middle: "entries".
   unit: [singular: string, plural: string]
+  // What the picture shows, for someone who cannot see it.
+  label: string
 }
 
 // A ring split by share, with every name, number and percentage listed
 // beside it so the colours are never the only way to read it.
-function Donut({ parts, unit }: DonutProps) {
+function Donut({ parts, unit, label }: DonutProps) {
   const [active, setActive] = useState<string | null>(null)
   const sum = total(parts)
   const shown = parts.find((part) => part.name === active)
   const share = (value: number) => Math.round((value / sum) * 100)
+  const middle = (shown ? shown.value : sum).toLocaleString('en-IN')
+  // A long number is written smaller, so it stays inside the ring.
+  const size = middle.length <= 5 ? 20 : middle.length <= 7 ? 15 : 12
 
   // Running start position of each slice along the ring.
   const starts = parts.map((_, index) =>
@@ -28,7 +33,7 @@ function Donut({ parts, unit }: DonutProps) {
 
   return (
     <div className="donut">
-      <svg viewBox="0 0 120 120" role="img" aria-label="Share by crop">
+      <svg viewBox="0 0 120 120" role="img" aria-label={label}>
         {parts.map((part, index) => {
           const length = (part.value / sum) * AROUND
           const drawn = parts.length > 1 ? Math.max(length - GAP, 0.5) : length
@@ -53,11 +58,31 @@ function Donut({ parts, unit }: DonutProps) {
             />
           )
         })}
-        <text x="60" y="59" textAnchor="middle" className="donut-value">
-          {(shown ? shown.value : sum).toLocaleString('en-IN')}
+        <text
+          x="60"
+          y="59"
+          textAnchor="middle"
+          className="donut-value"
+          style={{ fontSize: `${size}px` }}
+        >
+          {middle}
         </text>
-        <text x="60" y="72" textAnchor="middle" className="donut-label">
-          {shown ? shown.name : sum === 1 ? unit[0] : unit[1]}
+        <text
+          x="60"
+          y="72"
+          textAnchor="middle"
+          className="donut-label"
+          // A longer name is written smaller, so it does not touch the ring.
+          style={shown && shown.name.length > 9 ? { fontSize: '6.5px' } : undefined}
+        >
+          {/* A very long name would still run over; the list below has it in full. */}
+          {shown
+            ? shown.name.length > 16
+              ? `${shown.name.slice(0, 15)}…`
+              : shown.name
+            : sum === 1
+              ? unit[0]
+              : unit[1]}
         </text>
       </svg>
 

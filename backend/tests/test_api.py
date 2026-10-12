@@ -67,6 +67,32 @@ def test_admin_changes_forms(client, boss):
     assert client.put("/api/forms/lot", json=[], headers=boss).status_code == 200
 
 
+def test_adding_the_same_seed_again_gives_the_same_qr_code(client, boss):
+    first = client.post("/api/lots", json=LOT, headers=boss).json()
+    assert first["existing"] is False
+
+    # Capitals, spacing and the other details do not make it a new lot.
+    again = client.post(
+        "/api/lots",
+        json={**LOT, "crop": " wheat", "variety": "hd  2967", "batchNo": "b-101", "storageLocation": "Shed 9"},
+        headers=boss,
+    ).json()
+    assert again["existing"] is True
+    assert again["id"] == first["id"]
+    assert again["storageLocation"] == "Shed 1"
+    assert len(client.get("/api/lots", headers=boss).json()) == 1
+
+    other = client.post("/api/lots", json={**LOT, "batchNo": "B-102"}, headers=boss).json()
+    assert other["existing"] is False
+    assert other["id"] != first["id"]
+
+    # A deleted lot's code is retired: the same details then make a new one.
+    client.delete(f"/api/lots/{first['id']}", headers=boss)
+    fresh = client.post("/api/lots", json=LOT, headers=boss).json()
+    assert fresh["existing"] is False
+    assert fresh["id"] != first["id"]
+
+
 # ---- Staff accounts ------------------------------------------------------
 
 
@@ -132,6 +158,28 @@ def test_admin_sets_a_new_password(client, boss, staff):
     assert old.status_code == 403
 
 
+def test_admin_deletes_an_account(client, boss, staff):
+    editor = staff("editor")
+    account = next(u for u in client.get("/api/staff", headers=boss).json() if u["role"] == "editor")
+    assert client.delete(f"/api/staff/{account['id']}", headers=editor).status_code == 403
+
+    assert client.delete(f"/api/staff/{account['id']}", headers=boss).status_code == 200
+    assert [u["username"] for u in client.get("/api/staff", headers=boss).json()] == ["boss"]
+    # Signed out at once, and the username and password no longer work.
+    assert client.get("/api/lots", headers=editor).status_code == 401
+    gone = client.post(
+        "/api/login", json={"username": account["username"], "password": "a-good-password"}
+    )
+    assert gone.status_code == 403
+    assert client.delete(f"/api/staff/{account['id']}", headers=boss).status_code == 404
+
+
+def test_nobody_deletes_their_own_account(client, boss, staff):
+    staff("admin", "second-admin")
+    me = next(u for u in client.get("/api/staff", headers=boss).json() if u["username"] == "boss")
+    assert client.delete(f"/api/staff/{me['id']}", headers=boss).status_code == 400
+
+
 # ---- Farmers -------------------------------------------------------------
 
 
@@ -145,6 +193,71 @@ def test_a_farmer_scans_and_submits_without_signing_in(client, boss, lot, entry)
     entry(lot_id, id="same-entry-id")
     entry(lot_id, id="same-entry-id")  # sent twice after a lost connection
     assert client.get("/api/entries", headers=boss).json()["total"] == 1
+
+
+# ---- Import --------------------------------------------------------------
+
+SEED = {"crop": "Paddy", "variety": "Sabour Heera", "batchNo": "SHK0030", "date": "2026-06-02"}
+
+
+def row(number: int, **changes) -> dict:
+    return {"id": f"import-{number:05d}", "farmerName": f"Farmer {number}", "seed": SEED, **changes}
+
+
+def test_import_makes_the_seed_lot_its_rows_describe(client, boss):
+    reply = client.post("/api/entries/import", json=[row(1), row(2)], headers=boss)
+    assert reply.json() == {"count": 2, "lotsMade": 1}
+
+    lots = client.get("/api/lots", headers=boss).json()
+    assert [(l["crop"], l["variety"], l["batchNo"], l["date"], l["entryCount"]) for l in lots] == [
+        ("Paddy", "Sabour Heera", "SHK0030", "2026-06-02", 2)
+    ]
+    shown = client.get("/api/entries", headers=boss).json()["items"][0]
+    assert shown["lotId"] == lots[0]["id"]
+    assert shown["lot"]["variety"] == "Sabour Heera"
+
+
+def test_import_uses_a_lot_that_is_already_there(client, boss, lot):
+    lot_id = lot(crop="PADDY", variety="Sabour  Heera", batchNo="shk0030")
+    other = {**SEED, "batchNo": "MDK0029"}
+    reply = client.post(
+        "/api/entries/import", json=[row(1), row(2, seed=other), row(3, lotId=lot_id, seed=None)], headers=boss
+    )
+    # Capitals and spacing do not make a different seed; another batch does.
+    assert reply.json() == {"count": 3, "lotsMade": 1}
+    counts = {l["batchNo"]: l["entryCount"] for l in client.get("/api/lots", headers=boss).json()}
+    assert counts == {"shk0030": 2, "MDK0029": 1}
+
+
+def test_import_keeps_the_time_the_file_gives(client, boss):
+    client.post(
+        "/api/entries/import",
+        json=[row(1, receivedAt="2026-06-27T11:03:00+05:30"), row(2)],
+        headers=boss,
+    )
+    found = client.get(
+        "/api/entries", params={"from": "2026-06-27T05:33:00Z", "to": "2026-06-27T05:34:00Z"}, headers=boss
+    ).json()
+    assert [e["farmerName"] for e in found["items"]] == ["Farmer 1"]
+    assert found["items"][0]["receivedAt"] == "2026-06-27T05:33:00Z"
+
+
+def test_importing_the_same_rows_again_adds_nothing(client, boss):
+    rows = [row(1), row(2), row(2)]
+    assert client.post("/api/entries/import", json=rows, headers=boss).json()["count"] == 2
+    again = client.post("/api/entries/import", json=[*rows, row(3)], headers=boss).json()
+    assert again == {"count": 1, "lotsMade": 0}
+    assert client.get("/api/entries", headers=boss).json()["total"] == 3
+
+
+def test_import_saves_all_of_a_call_or_none(client, boss):
+    bad = [row(1), row(2, seed=None)]
+    reply = client.post("/api/entries/import", json=bad, headers=boss)
+    assert reply.status_code == 400
+    assert client.get("/api/entries", headers=boss).json()["total"] == 0
+    assert client.get("/api/lots", headers=boss).json() == []
+    unknown = client.post("/api/entries/import", json=[row(1, lotId="NOSUCH11", seed=None)], headers=boss)
+    assert unknown.status_code == 400
 
 
 # ---- The entries list ----------------------------------------------------
@@ -221,6 +334,56 @@ def test_a_viewer_never_gets_a_full_id_number(client, boss, staff, lot, entry):
     assert masked["idNumber"] == "••••9012"
 
 
+# ---- Correcting an entry -------------------------------------------------
+
+CHANGE = {"filledBy": "Field officer", "farmerName": "Asha Devi", "contact": "9876543210",
+          "kycType": "Aadhaar ID", "idNumber": "123456789012", "channel": "Depot", "quantity": "2KG"}
+
+
+def test_an_editor_corrects_an_entry(client, boss, staff, lot, entry):
+    lot_id = lot()
+    entry_id = entry(lot_id, farmerName="Asha Dvi", received_at=dt.datetime(2026, 6, 10, 12, 0))
+    before = client.get("/api/entries", headers=boss).json()["items"][0]
+    assert before["updatedAt"] is None
+
+    reply = client.put(f"/api/entries/{entry_id}", json=CHANGE, headers=staff("editor"))
+    assert reply.status_code == 200
+    after = client.get("/api/entries", headers=boss).json()["items"][0]
+    assert after["farmerName"] == "Asha Devi"
+    assert after["contact"] == "9876543210"
+    assert after["idNumber"] == "123456789012"
+    assert after["filledBy"] == "Field officer"
+    # Who corrected it is recorded; where it came from is untouched.
+    assert after["updatedBy"] == "editor-one"
+    assert after["updatedAt"]
+    assert after["lotId"] == lot_id
+    assert after["receivedAt"] == before["receivedAt"] == "2026-06-10T12:00:00Z"
+    assert client.get("/api/entries", params={"q": "asha devi"}, headers=boss).json()["total"] == 1
+
+
+def test_a_correction_is_checked_like_a_new_entry(client, boss, staff, lot, entry):
+    entry_id = entry(lot())
+    assert client.put(f"/api/entries/{entry_id}", json=CHANGE, headers=staff("viewer")).status_code == 403
+    assert client.put(f"/api/entries/{entry_id}", json=CHANGE).status_code == 401
+    nameless = client.put(f"/api/entries/{entry_id}", json={**CHANGE, "farmerName": " "}, headers=boss)
+    assert nameless.status_code == 400
+    assert client.put("/api/entries/no-such-entry", json=CHANGE, headers=boss).status_code == 404
+    assert client.get("/api/entries", headers=boss).json()["items"][0]["farmerName"] == "Farmer 1"
+
+
+def test_an_editor_deletes_an_entry(client, boss, staff, lot, entry):
+    lot_id = lot()
+    keep, drop = entry(lot_id), entry(lot_id)
+    assert client.delete(f"/api/entries/{drop}", headers=staff("viewer")).status_code == 403
+    assert client.delete(f"/api/entries/{drop}").status_code == 401
+
+    assert client.delete(f"/api/entries/{drop}", headers=staff("editor")).status_code == 200
+    left = client.get("/api/entries", headers=boss).json()
+    assert [e["id"] for e in left["items"]] == [keep]
+    assert client.get("/api/lots", headers=boss).json()[0]["entryCount"] == 1
+    assert client.delete(f"/api/entries/{drop}", headers=boss).status_code == 404
+
+
 # ---- Export --------------------------------------------------------------
 
 
@@ -292,13 +455,63 @@ def test_stats_in_weeks(client, boss, lot, entry):
         entry(lot_id, received_at=start + dt.timedelta(days=day, hours=1))
 
     got = client.get(
-        "/api/stats", params={"start": "2026-06-01T00:00:00Z", "days": 14, "size": 7}, headers=boss
+        "/api/stats",
+        params={"start": "2026-06-01T00:00:00Z", "days": 14, "size": 7, "by": "crop"},
+        headers=boss,
     ).json()
     assert got["columns"] == [{"Wheat": 2}, {"Wheat": 2}]
+
+
+def test_stats_of_one_crop_are_split_by_variety(client, boss, lot, entry):
+    sona, heera = lot(variety="Sona"), lot(variety="Heera", batchNo="B-102")
+    start = dt.datetime(2026, 6, 1)
+    entry(sona, received_at=start + dt.timedelta(hours=1), channel="Depot")
+    entry(heera, received_at=start + dt.timedelta(hours=2), channel="Depot")
+    entry(heera, received_at=start + dt.timedelta(days=1), channel="Shop")
+    params = {"start": "2026-06-01T00:00:00Z", "days": 2}
+
+    # Everything is wheat, so a split by crop would be one colour.
+    got = client.get("/api/stats", params=params, headers=boss).json()
+    assert got["by"] == "variety"
+    assert got["series"] == ["Sona", "Heera"]
+    assert got["columns"] == [{"Sona": 1, "Heera": 1}, {"Heera": 1}]
+    assert got["channels"][0] == {"name": "Depot", "counts": {"Sona": 1, "Heera": 1}}
+    assert got["channelCount"] == 2
+    assert (got["first"], got["last"]) == ("2026-06-01T01:00:00Z", "2026-06-02T00:00:00Z")
+
+    asked = client.get("/api/stats", params={**params, "by": "crop"}, headers=boss).json()
+    assert (asked["by"], asked["series"]) == ("crop", ["Wheat"])
+    # A second crop makes the split by crop worth showing again.
+    entry(lot(crop="Rice"), received_at=start + dt.timedelta(hours=3))
+    mixed = client.get("/api/stats", params=params, headers=boss).json()
+    assert (mixed["by"], mixed["series"]) == ("crop", ["Wheat", "Rice"])
 
 
 def test_stats_with_nothing_yet(client, boss):
     got = client.get(
         "/api/stats", params={"start": "2026-06-01T00:00:00Z", "days": 7}, headers=boss
     ).json()
-    assert got == {"series": [], "previous": 0, "columns": [{}] * 7, "channels": []}
+    assert got == {
+        "series": [], "by": "crop", "first": None, "last": None, "channelCount": 0,
+        "previous": 0, "columns": [{}] * 7, "channels": [],
+    }
+
+
+def test_stats_say_when_the_first_entry_came_in(client, boss, lot, entry):
+    lot_id = lot()
+    entry(lot_id, received_at=dt.datetime(2026, 6, 10, 9, 0))
+    entry(lot_id, received_at=dt.datetime(2025, 1, 5, 18, 31))  # "all time" starts here
+    params = {"start": "2026-06-01T00:00:00Z", "days": 7}
+    assert client.get("/api/stats", params=params, headers=boss).json()["first"] == "2025-01-05T18:31:00Z"
+
+    # All time is drawn in wider columns: here two of 365 days.
+    wide = client.get(
+        "/api/stats",
+        params={"start": "2024-06-11T00:00:00Z", "days": 730, "size": 365, "by": "crop"},
+        headers=boss,
+    ).json()
+    assert wide["columns"] == [{"Wheat": 1}, {"Wheat": 1}]
+    too_many = client.get(
+        "/api/stats", params={"start": "2020-01-01T00:00:00Z", "days": 3000}, headers=boss
+    )
+    assert too_many.status_code == 400

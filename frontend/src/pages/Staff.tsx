@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import Field from '../components/Field'
 import PageHeader from '../components/PageHeader'
@@ -53,7 +53,12 @@ function Staff() {
                   </thead>
                   <tbody>
                     {data.map((account) => (
-                      <AccountRow key={account.id} account={account} onChanged={reload} />
+                      <AccountRow
+                        key={account.id}
+                        account={account}
+                        onlyAdmin={isActiveAdmin(account) && data.filter(isActiveAdmin).length === 1}
+                        onChanged={reload}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -82,9 +87,26 @@ function Staff() {
   )
 }
 
-function RoleSelect({ id, value, onChange }: { id?: string; value: Role; onChange: (role: Role) => void }) {
+// There must always be at least one of these, or nobody could open this page.
+function isActiveAdmin(account: StaffAccount): boolean {
+  return account.role === 'admin' && account.active
+}
+
+type RoleSelectProps = {
+  id?: string
+  value: Role
+  disabled?: boolean
+  onChange: (role: Role) => void
+}
+
+function RoleSelect({ id, value, disabled, onChange }: RoleSelectProps) {
   return (
-    <select id={id} value={value} onChange={(e) => onChange(e.target.value as Role)}>
+    <select
+      id={id}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as Role)}
+    >
       {ROLES.map((role) => (
         <option key={role} value={role}>
           {ROLE_NAMES[role]}
@@ -186,11 +208,29 @@ function NewAccount({ onAdded }: { onAdded: () => void }) {
   )
 }
 
-function AccountRow({ account, onChanged }: { account: StaffAccount; onChanged: () => void }) {
+type AccountRowProps = {
+  account: StaffAccount
+  // True for the last admin who can sign in: its role stays, and it cannot
+  // be switched off. The server refuses both as well.
+  onlyAdmin: boolean
+  onChanged: () => void
+}
+
+function AccountRow({ account, onlyAdmin, onChanged }: AccountRowProps) {
   // The new password being typed, or null when the box is closed.
   const [password, setPassword] = useState<string | null>(null)
+  // True after Delete is pressed, while waiting for a yes or no.
+  const [confirming, setConfirming] = useState(false)
   const [failure, setFailure] = useState('')
   const isMe = account.username === signedInUsername()
+
+  // A refusal is shown for a few seconds, then cleared. Nothing was changed,
+  // so there is nothing for the message to stay next to.
+  useEffect(() => {
+    if (!failure) return
+    const timer = setTimeout(() => setFailure(''), 6000)
+    return () => clearTimeout(timer)
+  }, [failure])
 
   async function change(patch: Partial<Pick<StaffAccount, 'role' | 'active'>> & { password?: string }) {
     setFailure('')
@@ -207,6 +247,17 @@ function AccountRow({ account, onChanged }: { account: StaffAccount; onChanged: 
     }
   }
 
+  async function remove() {
+    setFailure('')
+    try {
+      await api(`/staff/${account.id}`, undefined, 'DELETE')
+      onChanged()
+    } catch (err) {
+      setConfirming(false)
+      setFailure((err as Error).message)
+    }
+  }
+
   return (
     <tr>
       <td>
@@ -214,24 +265,52 @@ function AccountRow({ account, onChanged }: { account: StaffAccount; onChanged: 
         {isMe && <span className="muted"> (you)</span>}
       </td>
       <td>
-        <RoleSelect value={account.role} onChange={(role) => void change({ role })} />
+        <RoleSelect
+          value={account.role}
+          disabled={onlyAdmin}
+          onChange={(role) => void change({ role })}
+        />
       </td>
       <td>{account.active ? 'Can sign in' : 'Switched off'}</td>
       <td>{formatDate(account.createdAt)}</td>
       <td className="row-actions">
         {failure && <span className="error">{failure}</span>}
-        {password === null ? (
+        {confirming ? (
           <>
-            <button type="button" className="link-button" onClick={() => setPassword('')}>
+            <span>Delete {account.username} for good?</span>
+            <button type="button" className="secondary compact" onClick={() => setConfirming(false)}>
+              Keep
+            </button>
+            <button type="button" className="danger compact" onClick={() => void remove()}>
+              Yes, delete
+            </button>
+          </>
+        ) : password === null ? (
+          <>
+            <button type="button" className="secondary compact" onClick={() => setPassword('')}>
               Set a new password
             </button>
-            <button
-              type="button"
-              className={account.active ? 'link-button danger' : 'link-button'}
-              onClick={() => void change({ active: !account.active })}
-            >
-              {account.active ? 'Switch off' : 'Switch on'}
-            </button>
+            {onlyAdmin ? (
+              <span>The only admin</span>
+            ) : (
+              <button
+                type="button"
+                className={account.active ? 'secondary danger compact' : 'secondary compact'}
+                onClick={() => void change({ active: !account.active })}
+              >
+                {account.active ? 'Switch off' : 'Switch on'}
+              </button>
+            )}
+            {/* Never your own account, and never the last admin. */}
+            {!isMe && !onlyAdmin && (
+              <button
+                type="button"
+                className="secondary danger compact"
+                onClick={() => setConfirming(true)}
+              >
+                Delete
+              </button>
+            )}
           </>
         ) : (
           <>
@@ -245,12 +324,12 @@ function AccountRow({ account, onChanged }: { account: StaffAccount; onChanged: 
               spellCheck={false}
               autoFocus
             />
-            <button type="button" className="link-button" onClick={() => setPassword(null)}>
+            <button type="button" className="secondary compact" onClick={() => setPassword(null)}>
               Cancel
             </button>
             <button
               type="button"
-              className="link-button"
+              className="compact"
               disabled={password.trim().length < MIN_PASSWORD}
               onClick={() => void change({ password })}
             >

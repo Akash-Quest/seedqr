@@ -14,10 +14,13 @@ export type Column = {
 // The top of the scale: the smallest "round" number that fits the data in
 // four equal steps, so every gridline is a whole number.
 function scaleStep(max: number): number {
-  for (const base of [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]) {
-    if (base * 4 >= max) return base
+  // 1, 2, 2.5 or 5 times a power of ten, however large the numbers get.
+  for (let power = 1; ; power *= 10) {
+    for (const base of [1, 2, 2.5, 5]) {
+      const step = base * power
+      if (Number.isInteger(step) && step * 4 >= max) return step
+    }
   }
-  return Math.ceil(max / 4)
 }
 
 type ColumnChartProps = {
@@ -30,7 +33,6 @@ function ColumnChart({ columns, unit }: ColumnChartProps) {
   const step = scaleStep(Math.max(1, ...columns.map((c) => total(c.parts))))
   const top = step * 4
   const ticks = [4, 3, 2, 1, 0].map((n) => n * step)
-  const last = columns.length - 1
 
   return (
     <div className="chart">
@@ -54,8 +56,9 @@ function ColumnChart({ columns, unit }: ColumnChartProps) {
               <li
                 key={column.key}
                 tabIndex={0}
-                // Tooltips near the edges open inwards so they are not cut off.
-                className={index < 2 ? 'at-start' : index > last - 2 ? 'at-end' : ''}
+                // The tooltip opens beside the column, on the side with more
+                // room: to the right in the left half, to the left in the right.
+                className={index < columns.length / 2 ? 'at-start' : 'at-end'}
               >
                 <span className="chart-stack" style={{ height: `${(sum / top) * 100}%` }}>
                   {column.parts.map((part) => (

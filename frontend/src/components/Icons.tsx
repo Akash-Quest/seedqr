@@ -137,6 +137,22 @@ export function CloseIcon() {
   )
 }
 
+export function ChevronLeftIcon() {
+  return (
+    <Icon>
+      <path d="M15 5l-7 7 7 7" />
+    </Icon>
+  )
+}
+
+export function ChevronRightIcon() {
+  return (
+    <Icon>
+      <path d="M9 5l7 7-7 7" />
+    </Icon>
+  )
+}
+
 export function InboxIcon() {
   return (
     <Icon>

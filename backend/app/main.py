@@ -91,6 +91,10 @@ def address():
 ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 
+def new_lot_id() -> str:
+    return "".join(secrets.choice(ID_CHARS) for _ in range(8))
+
+
 @app.get(
     "/api/lots",
     response_model=list[schemas.LotOut],
@@ -114,13 +118,22 @@ def list_lots(db: Session = Depends(get_db)):
 
 @app.post(
     "/api/lots",
-    response_model=schemas.LotOut,
+    response_model=schemas.LotMade,
     dependencies=[Depends(auth.editor)],
 )
 def create_lot(body: schemas.LotIn, db: Session = Depends(get_db)):
     extra = forms.check_lot(body, db)
+    # The same crop, variety and batch is the same seed lot, so it keeps the
+    # QR code it already has: adding it again gives that lot back, unchanged.
+    # A deleted lot does not count, since deleting is how a code is retired.
+    wanted = same_seed(body.crop, body.variety, body.batch_no)
+    for lot in db.scalars(
+        select(SeedLot).where(SeedLot.deleted_at.is_(None)).order_by(SeedLot.created_at)
+    ):
+        if same_seed(lot.crop, lot.variety, lot.batch_no) == wanted:
+            return {**schemas.LotOut.model_validate(lot).model_dump(), "existing": True}
     lot = SeedLot(
-        id="".join(secrets.choice(ID_CHARS) for _ in range(8)),
+        id=new_lot_id(),
         **body.model_dump(exclude={"extra"}),
         extra=extra,
     )
@@ -241,34 +254,90 @@ def save_entry(body: schemas.EntryIn, request: Request, db: Session = Depends(ge
 MAX_IMPORT = 5000
 
 
+def same_seed(crop: str, variety: str, batch_no: str) -> tuple:
+    """Two rows are the same seed when these match, whatever the capitals
+    and spacing."""
+    return tuple(" ".join(part.split()).lower() for part in (crop, variety, batch_no))
+
+
 @app.post(
     "/api/entries/import",
     response_model=schemas.Imported,
     dependencies=[Depends(auth.editor)],
 )
-def import_entries(body: list[schemas.EntryIn], db: Session = Depends(get_db)):
+def import_entries(body: list[schemas.ImportRow], db: Session = Depends(get_db)):
     """Entries the office uploads from an Excel file. The Users page reads
-    the file and sends its rows here. Either every row is saved or none."""
+    the file and sends its rows here, up to MAX_IMPORT at a time. Either
+    every row of a call is saved or none.
+
+    A row names its seed lot by QR code, or carries the seed details: then
+    the lot with that crop, variety and batch is used, and made if there is
+    none. A row whose ID is already stored is left alone, so sending the
+    same rows again adds nothing."""
     if len(body) > MAX_IMPORT:
-        raise HTTPException(400, f"A file can have at most {MAX_IMPORT} rows.")
+        raise HTTPException(400, f"At most {MAX_IMPORT} rows can be sent at once.")
     snapshots: dict[str, dict] = {}
+    # Live lots by crop, variety and batch. Filled when first needed.
+    by_seed: dict[tuple, str] | None = None
+    lots_made = 0
+
+    def remember(lot: SeedLot) -> str:
+        snapshots[lot.id] = schemas.LotOut.model_validate(lot).model_dump(mode="json")
+        return lot.id
+
+    def lot_for(number: int, row: schemas.ImportRow) -> str:
+        nonlocal by_seed, lots_made
+        if row.lot_id:
+            if row.lot_id not in snapshots:
+                lot = db.get(SeedLot, row.lot_id)
+                if lot is None or lot.deleted_at is not None:
+                    raise HTTPException(
+                        400, f"Row {number}: QR code “{row.lot_id}” is not recognised."
+                    )
+                remember(lot)
+            return row.lot_id
+        seed = row.seed
+        if seed is None:
+            raise HTTPException(400, f"Row {number}: there is no QR code and no seed details.")
+        if by_seed is None:
+            live = db.scalars(
+                select(SeedLot).where(SeedLot.deleted_at.is_(None)).order_by(SeedLot.created_at)
+            )
+            by_seed = {same_seed(lot.crop, lot.variety, lot.batch_no): remember(lot) for lot in live}
+        key = same_seed(seed.crop, seed.variety, seed.batch_no)
+        if key not in by_seed:
+            lot = SeedLot(
+                id=new_lot_id(),
+                **seed.model_dump(exclude={"date"}),
+                date=seed.date or (row.received_at or utc_now()).date(),
+                extra={},
+            )
+            db.add(lot)
+            db.flush()
+            by_seed[key] = remember(lot)
+            lots_made += 1
+        return by_seed[key]
+
+    stored = set(
+        db.scalars(select(FarmerEntry.id).where(FarmerEntry.id.in_({row.id for row in body})))
+    )
     seen = set()
     for number, row in enumerate(body, start=1):
-        if row.lot_id not in snapshots:
-            lot = db.get(SeedLot, row.lot_id)
-            if lot is None or lot.deleted_at is not None:
-                raise HTTPException(
-                    400, f"Row {number}: QR code “{row.lot_id}” is not recognised."
-                )
-            snapshots[row.lot_id] = schemas.LotOut.model_validate(lot).model_dump(mode="json")
-        if row.id in seen or db.get(FarmerEntry, row.id) is not None:
+        lot_id = lot_for(number, row)
+        if row.id in seen or row.id in stored:
             continue
         seen.add(row.id)
-        db.add(
-            FarmerEntry(**row.model_dump(), ip_address="", lot_snapshot=snapshots[row.lot_id])
+        entry = FarmerEntry(
+            **row.model_dump(exclude={"lot_id", "seed", "received_at"}),
+            lot_id=lot_id,
+            ip_address="",
+            lot_snapshot=snapshots[lot_id],
         )
+        if row.received_at is not None:
+            entry.received_at = row.received_at
+        db.add(entry)
     db.commit()
-    return {"count": len(seen)}
+    return {"count": len(seen), "lots_made": lots_made}
 
 
 # What the search box on the Users page looks through.
@@ -340,6 +409,48 @@ def list_entries(
             if len(item.id_number) > 4:
                 item.id_number = "••••" + item.id_number[-4:]
     return {"items": items, "total": total}
+
+
+@app.put("/api/entries/{entry_id}", response_model=schemas.EntryOut)
+def update_entry(
+    entry_id: str,
+    body: schemas.EntryChange,
+    user: User = Depends(auth.editor),
+    db: Session = Depends(get_db),
+):
+    """Corrects what was written on an entry, and records who did it."""
+    entry = db.get(FarmerEntry, entry_id)
+    if entry is None:
+        raise HTTPException(404, "This entry is no longer there.")
+    extra = {
+        field["key"]: forms.check_custom(field, body.extra[field["key"]])
+        for field in forms.load("farmer", db)
+        if not field["builtin"] and field["key"] in body.extra
+    }
+    for name, value in body.model_dump(exclude={"extra"}).items():
+        setattr(entry, name, value)
+    # Answers to questions now hidden or removed are kept, not wiped.
+    entry.extra = {**(entry.extra or {}), **extra}
+    entry.updated_at = utc_now()
+    entry.updated_by = user.username
+    db.commit()
+    return entry_out(entry)
+
+
+@app.delete(
+    "/api/entries/{entry_id}",
+    response_model=schemas.Ok,
+    dependencies=[Depends(auth.editor)],
+)
+def delete_entry(entry_id: str, db: Session = Depends(get_db)):
+    """Removes an entry for good, for one made by mistake or sent twice.
+    Unlike a seed lot, nothing of it is kept."""
+    entry = db.get(FarmerEntry, entry_id)
+    if entry is None:
+        raise HTTPException(404, "This entry is no longer there.")
+    db.delete(entry)
+    db.commit()
+    return {}
 
 
 def spreadsheet_safe(value) -> str:

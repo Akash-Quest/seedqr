@@ -126,7 +126,9 @@ function Barcode() {
               <LotForm
                 fields={lotFields}
                 onSaved={(lot) => {
-                  setParams({ lot: lot.id })
+                  // The same crop, variety and batch as a lot already here
+                  // gives that lot back, with the QR code it always had.
+                  setParams(lot.existing ? { lot: lot.id, existing: '1' } : { lot: lot.id })
                   reload()
                 }}
               />
@@ -147,6 +149,7 @@ function Barcode() {
                   <QrLabel
                     key={selected.id}
                     lot={selected}
+                    existing={params.has('existing')}
                     mayEdit={mayEdit}
                     onEdit={() => setParams({ edit: selected.id })}
                     onDeleted={() => {
@@ -437,6 +440,8 @@ function LotTable({ lots, selectedId, mayEdit, onShow, onEdit, onDeleted }: LotT
 
 type QrLabelProps = {
   lot: SeedLot
+  // True when someone has just tried to add this lot again.
+  existing: boolean
   // False for an account that may only look.
   mayEdit: boolean
   onEdit: () => void
@@ -444,7 +449,7 @@ type QrLabelProps = {
   onClose: () => void
 }
 
-function QrLabel({ lot, mayEdit, onEdit, onDeleted, onClose }: QrLabelProps) {
+function QrLabel({ lot, existing, mayEdit, onEdit, onDeleted, onClose }: QrLabelProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   // Deleting asks for a second press, since printed labels stop working.
   const [confirming, setConfirming] = useState(false)
@@ -509,6 +514,13 @@ function QrLabel({ lot, mayEdit, onEdit, onDeleted, onClose }: QrLabelProps) {
       </div>
 
       <div className="card-body">
+        {existing && (
+          <p className="notice no-print" role="status">
+            <strong>This seed lot was already here.</strong> A lot with the same crop, variety
+            and batch/lot number keeps one QR code, so nothing new was made. This is its code,
+            with the details it already had. To change them, use “Change details”.
+          </p>
+        )}
         {localOnly && (
           <p className="warning no-print">
             This code points to <span className="mono">{base}</span>, which only

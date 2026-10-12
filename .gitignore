@@ -12,6 +12,9 @@ backend/.env
 backend/*.db
 backend/*.sql
 
+# Real farmer data waiting to be imported. Never commit it.
+db_in_excel/
+
 # Editors
 .vscode/*
 !.vscode/extensions.json

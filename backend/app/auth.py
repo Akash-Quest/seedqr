@@ -182,3 +182,20 @@ def change_staff(user_id: int, body: schemas.StaffChange, db: Session = Depends(
         db.execute(delete(AdminSession).where(AdminSession.user_id == user.id))
     db.commit()
     return user
+
+
+@router.delete("/staff/{user_id}", response_model=schemas.Ok)
+def delete_staff(user_id: int, me: User = Depends(admin), db: Session = Depends(get_db)):
+    """Removes an account for good. Switching it off (above) is the gentler
+    choice: that one can be undone."""
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, "Not found.")
+    if user.id == me.id:
+        raise HTTPException(400, "You cannot delete your own account.")
+    if user.role == "admin" and user.active and not other_admins(user, db):
+        raise HTTPException(400, "Keep at least one active admin.")
+    db.execute(delete(AdminSession).where(AdminSession.user_id == user.id))
+    db.delete(user)
+    db.commit()
+    return {}

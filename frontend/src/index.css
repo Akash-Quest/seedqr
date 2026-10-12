@@ -418,6 +418,13 @@ button.secondary.danger:hover {
   color: var(--red);
 }
 
+/* A smaller button, for the actions at the end of a table row. */
+button.compact {
+  padding: 0.3rem 0.75rem;
+  min-height: 2.1rem;
+  font-size: 0.9rem;
+}
+
 button.link-button {
   background: none;
   border: 0;
@@ -730,7 +737,68 @@ input[type='checkbox'] {
 }
 
 .stat {
-  padding: 1.1rem 1.3rem;
+  position: relative;
+  padding: 0.75rem 1.2rem;
+}
+
+.stat .stat-value {
+  font-size: 1.7rem;
+}
+
+/* A small picture of what the number counts, in the corner of its tile. */
+.stat-icon {
+  position: absolute;
+  top: 0.75rem;
+  right: 1rem;
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: var(--radius-small);
+  background: rgb(255 255 255 / 0.18);
+  color: #fff;
+}
+
+.stat .stat-label {
+  padding-right: 3rem;
+}
+
+/* A long name in a note is cut short; its title has the rest. */
+.stat .stat-note {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The three headline tiles each have their own colour, all dark enough for
+   white text to read easily on them. */
+.stat.solid {
+  background: var(--tile);
+  border-color: var(--tile);
+  color: #fff;
+}
+
+.stat.blue {
+  --tile: var(--brand);
+}
+
+.stat.green {
+  --tile: #1e6a44;
+}
+
+.stat.amber {
+  --tile: #9a5a0c;
+}
+
+.stat.solid .stat-label,
+.stat.solid .stat-note {
+  color: rgb(255 255 255 / 0.85);
+}
+
+/* On a coloured tile the arrow is told apart by its shape, not its colour. */
+.stat.solid .stat-note .up,
+.stat.solid .stat-note .down {
+  color: inherit;
 }
 
 .stat-label {
@@ -852,11 +920,14 @@ input[type='checkbox'] {
   background: rgb(19 26 39 / 0.06);
 }
 
+/* Opens beside the column, starting at the top of the chart and growing
+   downwards. It used to open above the column and grow upwards, so a long
+   one (several varieties) ran off the top of the card and lost its first
+   lines. */
 .chart-tip {
   position: absolute;
-  bottom: calc(100% - 1.5rem);
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  left: calc(100% + 6px);
   z-index: 1;
   display: none;
   padding: 0.4rem 0.65rem;
@@ -894,15 +965,11 @@ input[type='checkbox'] {
   border-radius: 2px;
 }
 
-.chart-columns li.at-start .chart-tip {
-  left: 0;
-  transform: none;
-}
-
+/* Columns in the right half open theirs to the left, towards the middle,
+   so it is never cut off by the edge of the card. */
 .chart-columns li.at-end .chart-tip {
   left: auto;
-  right: 0;
-  transform: none;
+  right: calc(100% + 6px);
 }
 
 .chart-columns li:hover .chart-tip,
@@ -931,30 +998,82 @@ input[type='checkbox'] {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.85rem;
 }
 
+/* Each row: its place in the ranking, the name, and the number with its
+   share on the right; the bar runs underneath the name. */
 .bar-list li {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.3rem 1rem;
-  align-items: baseline;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'rank name value'
+    'rank track track';
+  gap: 0.45rem 0.8rem;
+  align-items: start;
+  padding: 0.8rem 0;
+  border-top: 1px solid var(--line);
 }
 
+.bar-list li:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.bar-list li:last-child {
+  padding-bottom: 0;
+}
+
+.bar-rank {
+  grid-area: rank;
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+/* Two lines at most, so every row is about the same height however long
+   the channel's name is. */
 .bar-name {
+  grid-area: name;
   font-size: 0.92rem;
+  line-height: 1.35;
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 .bar-value {
-  font-weight: 600;
+  grid-area: value;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-weight: 700;
+  line-height: 1.35;
   font-variant-numeric: tabular-nums;
 }
 
+.bar-value small {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* The pale track is the longest bar's full length, so each bar can be
+   compared against it at a glance. */
 .bar-track {
-  grid-column: 1 / -1;
-  height: 10px;
+  grid-area: track;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--paper);
+  overflow: hidden;
 }
 
 .bar-track > span {
@@ -962,15 +1081,13 @@ input[type='checkbox'] {
   gap: 2px;
   height: 100%;
   min-width: 4px;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
 .bar-track > span > span {
   flex-basis: 0;
   min-width: 2px;
-}
-
-.bar-track > span > span:last-child {
-  border-radius: 0 4px 4px 0;
 }
 
 /* Legend: a colour swatch beside each name. Text stays in normal ink. */
@@ -988,6 +1105,12 @@ input[type='checkbox'] {
   display: flex;
   align-items: center;
   gap: 0.45rem;
+}
+
+/* Placed under a chart instead of above it, and centred there. */
+.legend.below {
+  margin: 1.1rem 0 0;
+  justify-content: center;
 }
 
 .legend i {
@@ -1024,11 +1147,18 @@ input[type='checkbox'] {
   font-variant-numeric: tabular-nums;
 }
 
+/* The ring on top with its list underneath, on every screen. It used to move
+   the list beside the ring when the card was wide enough, so the same card
+   looked different from one laptop to the next. */
 .donut {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem 1.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.donut .legend.stacked {
+  flex: none;
 }
 
 .donut svg {
@@ -1109,9 +1239,12 @@ tbody tr:hover {
   background: #f8f9fb;
 }
 
-td.wrap {
-  white-space: normal;
-  min-width: 16rem;
+/* Long text kept to one line and cut off with "…". The cell's title
+   shows the whole text on hover. */
+td.clip {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 td.strong {
@@ -1150,6 +1283,13 @@ td.row-actions span {
 button.icon-button.danger:hover,
 button.link-button.danger {
   color: var(--red);
+}
+
+/* A red link stays a link when pointed at: without this it takes the solid
+   red background meant for red buttons, hiding its own text. */
+button.link-button.danger:hover {
+  background: none;
+  color: #86261a;
 }
 
 button.icon-button.danger {
@@ -1462,8 +1602,27 @@ tr.detail-row h3 {
   width: auto;
 }
 
+/* The count, with the arrows for the page before and after beside it. */
 .card-head .filter-count {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.filter-count p {
+  margin-right: 0.35rem;
+}
+
+.filter-count .icon-button {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+}
+
+/* When Previous or Next scrolls the entries table back into view, stop
+   below the page heading that stays at the top of the screen. */
+.entries-card {
+  scroll-margin-top: 6rem;
 }
 
 /* Previous / Next under a long table. */
@@ -1476,6 +1635,19 @@ tr.detail-row h3 {
   font-size: 0.95rem;
   min-width: 9rem;
   text-align: center;
+}
+
+/* Cancel and Save under the form for correcting an entry. */
+.edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.1rem;
+}
+
+.edit-actions .error {
+  margin: 0 auto 0 0;
 }
 
 /* ---- Staff accounts ---- */

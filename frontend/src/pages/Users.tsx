@@ -1,8 +1,17 @@
-import { Fragment, useEffect, useState } from 'react'
-import { DownloadIcon, RefreshIcon, UploadIcon } from '../components/Icons'
+import { Fragment, useEffect, useRef, useState } from 'react'
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DownloadIcon,
+  EditIcon,
+  RefreshIcon,
+  TrashIcon,
+  UploadIcon,
+} from '../components/Icons'
+import EntryEditor from '../components/EntryEditor'
 import ImportEntries from '../components/ImportEntries'
 import PageHeader from '../components/PageHeader'
-import { canEdit, currentToken, useApi } from '../data/api'
+import { api, canEdit, currentToken, useApi } from '../data/api'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { formatDate, formatDateTime } from '../data/types'
@@ -93,7 +102,7 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
 }
 
 // Rows on one page of the table.
-const PAGE_SIZE = 1000
+const PAGE_SIZE = 100
 
 // The start of a day (YYYY-MM-DD) on this computer's clock, as the exact
 // time the server understands. `add` moves it on by that many days.
@@ -134,7 +143,20 @@ function Users() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [page, setPage] = useState(1)
+  const tableCard = useRef<HTMLElement>(null)
+
+  // Previous and Next sit under the table, so the new page would otherwise
+  // open at its last rows. This brings its first rows into view.
+  function goToPage(next: number) {
+    setPage(next)
+    tableCard.current?.scrollIntoView({ block: 'start' })
+  }
   const [openId, setOpenId] = useState<string | null>(null)
+  // The entry being corrected, if any.
+  const [editId, setEditId] = useState<string | null>(null)
+  // The entry whose delete button was pressed and is waiting for a yes or no.
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const [deleteFailure, setDeleteFailure] = useState('')
   const [importing, setImporting] = useState(false)
 
   useEffect(() => {
@@ -181,6 +203,16 @@ function Users() {
     setTicked(allPicked ? new Set() : new Set(shown.map((e) => e.id)))
   }
 
+  async function remove(id: string) {
+    try {
+      await api(`/entries/${encodeURIComponent(id)}`, undefined, 'DELETE')
+      setConfirmId(null)
+      reload()
+    } catch (err) {
+      setDeleteFailure((err as Error).message)
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -222,6 +254,7 @@ function Users() {
         {importing && (
           <ImportEntries
             fields={forms.farmer}
+            lotFields={forms.lot}
             onImported={reload}
             onClose={() => setImporting(false)}
           />
@@ -231,7 +264,7 @@ function Users() {
         ) : !data ? (
           <p className="muted">Loading…</p>
         ) : (
-          <section className="card">
+          <section className="card entries-card" ref={tableCard}>
             <div className="card-head filters">
               <input
                 className="search"
@@ -279,12 +312,40 @@ function Users() {
                   Clear
                 </button>
               )}
-              <p className="filter-count">
-                {picked.length > 0 && `${picked.length} selected · `}
-                {total === 0
-                  ? 'Showing 0'
-                  : `Showing ${number(first)} to ${number(first + shown.length - 1)} of ${number(total)}`}
-              </p>
+              <div className="filter-count">
+                <p>
+                  {picked.length > 0 && `${picked.length} selected · `}
+                  {total === 0
+                    ? 'Showing 0'
+                    : `Showing ${number(first)} to ${number(first + shown.length - 1)} of ${number(total)}`}
+                </p>
+                {/* The same as Previous and Next under the table, within
+                    reach without scrolling down. */}
+                {pages > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Previous page"
+                      title="Previous page"
+                      disabled={page <= 1}
+                      onClick={() => setPage(page - 1)}
+                    >
+                      <ChevronLeftIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label="Next page"
+                      title="Next page"
+                      disabled={page >= pages}
+                      onClick={() => setPage(page + 1)}
+                    >
+                      <ChevronRightIcon />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             {total === 0 && !filtered ? (
@@ -326,6 +387,9 @@ function Users() {
                       <th>Distribution channel</th>
                       <th>Filled by</th>
                       <th>Received</th>
+                      <th>
+                        <span className="visually-hidden">Actions</span>
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -342,16 +406,6 @@ function Users() {
                         </td>
                         <td>
                           <strong>{e.farmerName}</strong>
-                          {/* Under the name, so it is reachable without
-                              scrolling the wide table sideways. */}
-                          <button
-                            type="button"
-                            className="link-button small"
-                            aria-expanded={openId === e.id}
-                            onClick={() => setOpenId(openId === e.id ? null : e.id)}
-                          >
-                            {openId === e.id ? 'Hide details' : 'Show details'}
-                          </button>
                         </td>
                         <td>{formatDate(e.date ?? '')}</td>
                         <td className="mono">{e.contact}</td>
@@ -365,13 +419,93 @@ function Users() {
                         <td className="mono">{e.lot?.batchNo}</td>
                         <td>{e.quantity}</td>
                         <td>{e.landholding}</td>
-                        <td className="wrap">{e.channel}</td>
+                        <td className="clip" title={e.channel}>
+                          {e.channel}
+                        </td>
                         <td>{e.filledBy}</td>
                         <td>{formatDateTime(e.receivedAt)}</td>
+                        {confirmId === e.id ? (
+                          <td className="row-actions">
+                            <span className={deleteFailure ? 'error' : ''}>
+                              {deleteFailure || 'Delete this entry for good?'}
+                            </span>
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => setConfirmId(null)}
+                            >
+                              Keep
+                            </button>
+                            <button
+                              type="button"
+                              className="link-button danger"
+                              onClick={() => void remove(e.id)}
+                            >
+                              Yes, delete
+                            </button>
+                          </td>
+                        ) : (
+                          <td className="row-actions">
+                            <button
+                              type="button"
+                              className="link-button"
+                              aria-expanded={openId === e.id}
+                              onClick={() => setOpenId(openId === e.id ? null : e.id)}
+                            >
+                              {openId === e.id ? 'Hide details' : 'Show details'}
+                            </button>
+                            {canEdit() && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="icon-button"
+                                  aria-label={`Edit ${e.farmerName}`}
+                                  title="Edit"
+                                  onClick={() => setEditId(editId === e.id ? null : e.id)}
+                                >
+                                  <EditIcon />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="icon-button danger"
+                                  aria-label={`Delete ${e.farmerName}`}
+                                  title="Delete"
+                                  onClick={() => {
+                                    setConfirmId(e.id)
+                                    setDeleteFailure('')
+                                  }}
+                                >
+                                  <TrashIcon />
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        )}
                       </tr>
+                      {editId === e.id && (
+                        <tr className="detail-row">
+                          <td colSpan={13}>
+                            <EntryEditor
+                              entry={e}
+                              fields={forms.farmer}
+                              onCancel={() => setEditId(null)}
+                              onSaved={() => {
+                                setEditId(null)
+                                reload()
+                              }}
+                            />
+                          </td>
+                        </tr>
+                      )}
                       {openId === e.id && (
                         <tr className="detail-row">
-                          <td colSpan={12}>
+                          <td colSpan={13}>
+                            {e.updatedAt && (
+                              <p className="muted gap-below">
+                                Corrected in the office by {e.updatedBy || 'staff'} on{' '}
+                                {formatDateTime(e.updatedAt)}.
+                              </p>
+                            )}
                             <OtherAnswers entry={e} fields={custom(forms.farmer)} />
                             <DeviceDetails entry={e} />
                           </td>
@@ -390,7 +524,7 @@ function Users() {
                   type="button"
                   className="secondary"
                   disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
+                  onClick={() => goToPage(page - 1)}
                 >
                   Previous
                 </button>
@@ -401,7 +535,7 @@ function Users() {
                   type="button"
                   className="secondary"
                   disabled={page >= pages}
-                  onClick={() => setPage(page + 1)}
+                  onClick={() => goToPage(page + 1)}
                 >
                   Next
                 </button>

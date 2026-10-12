@@ -5,7 +5,7 @@ import type { BarRow } from '../components/BarList'
 import ColumnChart from '../components/ColumnChart'
 import type { Column } from '../components/ColumnChart'
 import Donut from '../components/Donut'
-import { PlusIcon } from '../components/Icons'
+import { InboxIcon, PlusIcon, QrIcon, UsersIcon } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
 import { canEdit, useApi } from '../data/api'
 import { cropSeries, sum, total } from '../data/series'
@@ -13,13 +13,22 @@ import type { Part, Series } from '../data/series'
 import { formatDateTime } from '../data/types'
 import type { CropCounts, EntryPage, SeedLot, Stats } from '../data/types'
 
+// Stands for "All time" where the others give a number of days.
+const ALL = 0
+
 const RANGES = [
+  // Everything since the first entry, however long ago that was.
+  { days: ALL, label: 'All time' },
   { days: 7, label: 'Last 7 days' },
   { days: 30, label: 'Last 30 days' },
   { days: 90, label: 'Last 90 days' },
 ]
 
 const DAY = 86_400_000
+// How many days one chart column may cover. "All time" takes the smallest
+// that keeps the chart to about a month's worth of columns.
+const COLUMN_DAYS = [1, 7, 30, 90, 365]
+const MOST_COLUMNS = 31
 
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
@@ -29,13 +38,28 @@ function dayMonth(time: number): string {
   return new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+function dayMonthYear(time: number): string {
+  return new Date(time).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+// What one column of the chart covers, as in "Farmer entries per week".
+function columnName(size: number): string {
+  return size === 1 ? 'day' : size === 7 ? 'week' : size === 365 ? 'year' : `${size} days`
+}
+
 type Split = (counts: CropCounts) => Part[]
 
-// One column per day, or per week for the 90 day view. The server has
-// already counted the entries for each.
+// One column per day, or per week or longer for the wider views. The server
+// has already counted the entries for each.
 function buildColumns(counts: CropCounts[], start: number, size: number, split: Split): Column[] {
   const count = counts.length
-  const every = count === 7 ? 1 : size === 1 ? 5 : 2
+  const every = count <= 7 ? 1 : size === 1 ? 5 : 2
+  // Columns longer than a week can reach into another year.
+  const label = size > 7 ? dayMonthYear : dayMonth
 
   return counts.map((column, i) => {
     const from = start + i * size * DAY
@@ -45,7 +69,7 @@ function buildColumns(counts: CropCounts[], start: number, size: number, split: 
       key: String(from),
       // Counted back from the newest column so "today" always has a label.
       tick: (count - 1 - i) % every === 0 ? dayMonth(from) : '',
-      name: size === 1 ? `${weekday} ${dayMonth(from)}` : `${dayMonth(from)} to ${dayMonth(to)}`,
+      name: size === 1 ? `${weekday} ${dayMonth(from)}` : `${label(from)} to ${label(to)}`,
       parts: split(column),
     }
   })
@@ -53,7 +77,7 @@ function buildColumns(counts: CropCounts[], start: number, size: number, split: 
 
 function Legend({ series }: { series: Series[] }) {
   return (
-    <ul className="legend">
+    <ul className="legend below">
       {series.map((item) => (
         <li key={item.name}>
           <i style={{ background: item.color }} />
@@ -66,12 +90,32 @@ function Legend({ series }: { series: Series[] }) {
 
 function Dashboard() {
   const [now] = useState(() => new Date())
-  const [days, setDays] = useState(7)
+  // The dashboard opens on everything there is.
+  const [days, setDays] = useState(ALL)
+  // For "All time": midnight on the days of the very first and the latest
+  // entry. Not known until the server has answered once.
+  const [whole, setWhole] = useState<{ first: number; last: number } | null>(null)
+  // "All time" is chosen, but what it covers is still being asked. Any
+  // answer says when the first and latest entries came in, so a week is
+  // asked for.
+  const finding = days === ALL && whole === null
 
-  // The 90 day view is drawn in whole weeks, so it covers 91 days.
-  const size = days > 30 ? 7 : 1
-  const span = Math.ceil(days / size) * size
-  const start = startOfDay(now) - (span - 1) * DAY
+  // The last day shown: today, or for "All time" the day of the latest
+  // entry, so the chart does not trail off into months with nothing in them.
+  const end = days === ALL && whole ? whole.last : startOfDay(now)
+  // How many days to show: the number chosen, or for "All time" every day
+  // from the first entry to the latest.
+  const wanted =
+    days !== ALL ? days : whole === null ? 7 : Math.round((whole.last - whole.first) / DAY) + 1
+  const size =
+    days === ALL
+      ? (COLUMN_DAYS.find((length) => wanted / length <= MOST_COLUMNS) ?? 365)
+      : days > 30
+        ? 7
+        : 1
+  // Drawn in whole columns, so the 90 day view covers 91 days.
+  const span = Math.ceil(wanted / size) * size
+  const start = end - (span - 1) * DAY
   const since = encodeURIComponent(new Date(start).toISOString())
 
   const lots = useApi<SeedLot[]>('/lots')
@@ -86,7 +130,30 @@ function Dashboard() {
   })
   const error = lots.error || stats.error || latest.error
   // Wait for the numbers of the period now chosen, not the one before.
-  const ready = lots.data && stats.data && latest.data && stats.fresh && latest.fresh
+  const ready =
+    lots.data && stats.data && latest.data && stats.fresh && latest.fresh && !finding
+
+  // Every answer says when the first and latest entries came in. With none
+  // yet, "All time" is simply the last week.
+  // Set while drawing, not in an effect: React then draws again at once with
+  // the real period, and never shows the week that was only asked for this.
+  const answer = stats.data
+  if (finding && answer) {
+    setWhole(
+      answer.first && answer.last
+        ? {
+            first: startOfDay(new Date(answer.first)),
+            last: startOfDay(new Date(answer.last)),
+          }
+        : { first: startOfDay(now) - 6 * DAY, last: startOfDay(now) },
+    )
+  }
+
+  function choose(next: number) {
+    // Looked up afresh each time, in case entries were imported since.
+    if (next === ALL) setWhole(null)
+    setDays(next)
+  }
 
   return (
     <>
@@ -113,7 +180,7 @@ function Dashboard() {
                   type="button"
                   className={range.days === days ? 'on' : ''}
                   aria-pressed={range.days === days}
-                  onClick={() => setDays(range.days)}
+                  onClick={() => choose(range.days)}
                 >
                   {range.label}
                 </button>
@@ -154,62 +221,104 @@ function Overview({ lots, stats, latest, start, size, days }: OverviewProps) {
   const crops = cropSeries(stats.series)
   const cropParts = crops.split(sum(stats.columns))
   const current = total(cropParts)
-  const newLots = lots.filter((lot) => new Date(lot.createdAt).getTime() >= start)
+  const allTime = days === ALL
+  const newLots = allTime
+    ? lots
+    : lots.filter((lot) => new Date(lot.createdAt).getTime() >= start)
   const unused = newLots.filter((lot) => !lot.entryCount)
-  const period = `last ${days} days`
+  const period = allTime ? 'all time' : `last ${days} days`
+  const first = stats.first ? dayMonthYear(new Date(stats.first).getTime()) : ''
+  const last = stats.last ? dayMonthYear(new Date(stats.last).getTime()) : ''
   const channelRows: BarRow[] = stats.channels.map((channel) => ({
     name: channel.name,
     parts: crops.split(channel.counts),
   }))
+  const columns = buildColumns(stats.columns, start, size, crops.split)
 
   return (
     <>
       <div className="stats">
-        <div className="card stat">
+        <div className="card stat solid blue">
+          <span className="stat-icon" aria-hidden="true">
+            <InboxIcon />
+          </span>
           <p className="stat-label">Farmer entries</p>
           <p className="stat-value">{current.toLocaleString('en-IN')}</p>
-          <Change now={current} before={stats.previous} days={days} />
+          {allTime ? (
+            // Nothing came before all time, so there is nothing to compare.
+            <p className="stat-note">
+              {first ? (first === last ? `on ${first}` : `${first} to ${last}`) : 'none yet'}
+            </p>
+          ) : (
+            <Change now={current} before={stats.previous} days={days} />
+          )}
         </div>
-        
-        <div className="card stat">
-          <p className="stat-label">Seed lots added</p>
-          <p className="stat-value">{newLots.length}</p>
+
+        <div className="card stat solid green">
+          <span className="stat-icon" aria-hidden="true">
+            <QrIcon />
+          </span>
+          <p className="stat-label">{allTime ? 'Seed lots' : 'Seed lots added'}</p>
+          <p className="stat-value">{newLots.length.toLocaleString('en-IN')}</p>
           <p className="stat-note">
             {newLots.length === 0
               ? 'none in this period'
               : unused.length === 0
-                ? 'all scanned at least once'
-                : `${unused.length} not scanned yet`}
+                ? 'every lot has farmer entries'
+                : `${unused.length} with no entries yet`}
           </p>
         </div>
-        
+
+        <div className="card stat solid amber">
+          <span className="stat-icon" aria-hidden="true">
+            <UsersIcon />
+          </span>
+          <p className="stat-label">Distribution channels</p>
+          <p className="stat-value">{stats.channelCount.toLocaleString('en-IN')}</p>
+          {/* A channel's name is too long to fit here; the list of the
+              busiest channels further down has the names. */}
+          <p className="stat-note">
+            {channelRows[0]
+              ? `busiest one has ${total(channelRows[0].parts).toLocaleString('en-IN')} entries`
+              : 'none in this period'}
+          </p>
+        </div>
       </div>
 
       <div className="split wide">
         <section className="card">
           <div className="card-head">
-            <h2>Farmer entries {days > 30 ? 'per week' : 'per day'}, by crop</h2>
-            <p>{current.toLocaleString('en-IN')} in the {period}</p>
+            <h2>
+              Farmer entries per {columnName(size)}, by {stats.by}
+            </h2>
+            <p>
+              {current.toLocaleString('en-IN')} {allTime ? 'in all' : `in the ${period}`}
+            </p>
           </div>
           <div className="card-body">
-            <Legend series={cropParts} />
             <ColumnChart
-              columns={buildColumns(stats.columns, start, size, crops.split)}
+              columns={columns}
               unit={['entry', 'entries']}
             />
+            {/* Under the chart, so the bars come first. */}
+            <Legend series={cropParts} />
           </div>
         </section>
 
         <section className="card">
           <div className="card-head">
-            <h2>Share by crop</h2>
+            <h2>Share by {stats.by}</h2>
             <p>{period}</p>
           </div>
           {current === 0 ? (
             <p className="empty">No entries in this period.</p>
           ) : (
             <div className="card-body">
-              <Donut parts={cropParts} unit={['entry', 'entries']} />
+              <Donut
+                parts={cropParts}
+                unit={['entry', 'entries']}
+                label={`Share of farmer entries by ${stats.by}`}
+              />
             </div>
           )}
         </section>
@@ -225,7 +334,7 @@ function Overview({ lots, stats, latest, start, size, days }: OverviewProps) {
             <p className="empty">No entries in this period.</p>
           ) : (
             <div className="card-body">
-              <BarList rows={channelRows} />
+              <BarList rows={channelRows} whole={current} />
             </div>
           )}
         </section>
@@ -237,7 +346,9 @@ function Overview({ lots, stats, latest, start, size, days }: OverviewProps) {
           </div>
           {current === 0 ? (
             <p className="empty">
-              <strong>Nothing came in during the {period}</strong>
+              <strong>
+                {allTime ? 'Nothing has come in yet' : `Nothing came in during the ${period}`}
+              </strong>
               {lots.length === 0
                 ? 'Add a seed lot and print its QR code to get started.'
                 : 'Entries appear here when a farmer scans a bag and submits the form.'}

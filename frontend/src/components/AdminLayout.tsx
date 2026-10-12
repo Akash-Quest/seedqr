@@ -41,12 +41,12 @@ function AdminLayout() {
           </NavLink>
           <NavLink to="/users">
             <UsersIcon />
-            Users
+            Farmers
           </NavLink>
           {isAdmin() && (
             <NavLink to="/staff">
               <StaffIcon />
-              Staff
+              Users
             </NavLink>
           )}
         </nav>

@@ -71,6 +71,9 @@ class FarmerEntry(Base):
     # Answers to questions the office added itself, by question key.
     extra: Mapped[dict | None] = mapped_column(JSON)
     received_at: Mapped[dt.datetime] = mapped_column(default=utc_now, index=True)
+    # Set when someone in the office corrects the entry: when, and who.
+    updated_at: Mapped[dt.datetime | None]
+    updated_by: Mapped[str | None] = mapped_column(String(100))
 
     lot: Mapped[SeedLot] = relationship(lazy="joined")
 
