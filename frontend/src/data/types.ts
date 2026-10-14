@@ -89,6 +89,8 @@ export type Stats = {
   last: string | null
   // How many distribution channels had an entry in the period.
   channelCount: number
+  // How many seed lots had an entry in the period.
+  lotCount: number
   // Entries in the period of the same length just before this one.
   previous: number
   // One per day or week.

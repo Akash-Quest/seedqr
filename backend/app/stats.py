@@ -126,6 +126,9 @@ def stats(
         counts[name(crop)] = counts.get(name(crop), 0) + count
     busiest = sorted(channels.items(), key=lambda item: (-sum(item[1].values()), item[0]))
 
+    lot_count = db.scalar(
+        select(func.count(func.distinct(FarmerEntry.lot_id))).where(*in_period)
+    )
     previous = db.scalar(
         select(func.count())
         .select_from(FarmerEntry)
@@ -142,6 +145,7 @@ def stats(
         "previous": previous,
         "columns": columns,
         "channel_count": len(channels),
+        "lot_count": lot_count,
         "channels": [
             {"name": channel, "counts": counts} for channel, counts in busiest[:TOP_CHANNELS]
         ],

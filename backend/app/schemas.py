@@ -279,6 +279,8 @@ class Stats(Wire):
     last: dt.datetime | None = None
     # How many distribution channels had an entry in the period.
     channel_count: int = 0
+    # How many seed lots had an entry in the period.
+    lot_count: int = 0
 
     @field_serializer("first", "last")
     def moment_utc(self, value: dt.datetime | None) -> str | None:

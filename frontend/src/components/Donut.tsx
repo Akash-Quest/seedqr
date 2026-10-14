@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { total } from '../data/series'
+import { ChevronRightIcon } from './Icons'
 import type { Part } from '../data/series'
 
 const RADIUS = 42
@@ -19,6 +20,8 @@ type DonutProps = {
 // beside it so the colours are never the only way to read it.
 function Donut({ parts, unit, label }: DonutProps) {
   const [active, setActive] = useState<string | null>(null)
+  // Whether the list under "Other" is open.
+  const [open, setOpen] = useState(false)
   const sum = total(parts)
   const shown = parts.find((part) => part.name === active)
   const share = (value: number) => Math.round((value / sum) * 100)
@@ -55,6 +58,7 @@ function Donut({ parts, unit, label }: DonutProps) {
               onPointerLeave={() => setActive(null)}
               onFocus={() => setActive(part.name)}
               onBlur={() => setActive(null)}
+              onClick={part.members?.length ? () => setOpen(!open) : undefined}
             />
           )
         })}
@@ -88,17 +92,39 @@ function Donut({ parts, unit, label }: DonutProps) {
 
       <ul className="legend stacked">
         {parts.map((part) => (
-          <li
-            key={part.name}
-            className={active === part.name ? 'on' : ''}
-            onPointerEnter={() => setActive(part.name)}
-            onPointerLeave={() => setActive(null)}
-          >
-            <i style={{ background: part.color }} />
-            <span>{part.name}</span>
-            <strong>{part.value.toLocaleString('en-IN')}</strong>
-            <span className="muted">{share(part.value)}%</span>
-          </li>
+          <Fragment key={part.name}>
+            <li
+              className={active === part.name ? 'on' : ''}
+              onPointerEnter={() => setActive(part.name)}
+              onPointerLeave={() => setActive(null)}
+            >
+              <i style={{ background: part.color }} />
+              {part.members?.length ? (
+                // "Other" opens to list what it is made of.
+                <button
+                  type="button"
+                  className="legend-open"
+                  aria-expanded={open}
+                  onClick={() => setOpen(!open)}
+                >
+                  {part.name}
+                  <ChevronRightIcon />
+                </button>
+              ) : (
+                <span>{part.name}</span>
+              )}
+              <strong>{part.value.toLocaleString('en-IN')}</strong>
+              <span className="muted">{share(part.value)}%</span>
+            </li>
+            {open &&
+              part.members?.map((member) => (
+                <li key={`${part.name}/${member.name}`} className="member">
+                  <span>{member.name}</span>
+                  <strong>{member.value.toLocaleString('en-IN')}</strong>
+                  <span className="muted">{share(member.value)}%</span>
+                </li>
+              ))}
+          </Fragment>
         ))}
       </ul>
     </div>

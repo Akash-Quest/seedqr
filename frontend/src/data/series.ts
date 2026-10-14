@@ -2,7 +2,8 @@ import type { CropCounts } from './types'
 
 // One coloured thing in a chart. Here a series is always a crop.
 export type Series = { name: string; color: string }
-export type Part = Series & { value: number }
+// `members` lists what "Other" is made of, largest first.
+export type Part = Series & { value: number; members?: { name: string; value: number }[] }
 
 // A fixed order chosen so neighbouring colours stay distinguishable for
 // colour-blind readers. Do not reorder or add to it; extra crops fold
@@ -24,13 +25,20 @@ export function cropSeries(crops: string[]) {
   // Turns counts by crop into one part per crop, in the fixed order.
   function split(counts: CropCounts): Part[] {
     const totals = new Map<Series, number>()
+    const members: { name: string; value: number }[] = []
     for (const [name, value] of Object.entries(counts)) {
       const series = byName.get(name) ?? OTHER
       totals.set(series, (totals.get(series) ?? 0) + value)
+      if (series === OTHER) members.push({ name, value })
     }
+    members.sort((a, b) => b.value - a.value)
     return list
       .filter((series) => totals.has(series))
-      .map((series) => ({ ...series, value: totals.get(series)! }))
+      .map((series) =>
+        series === OTHER
+          ? { ...series, value: totals.get(series)!, members }
+          : { ...series, value: totals.get(series)! },
+      )
   }
 
   return { split }

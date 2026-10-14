@@ -441,6 +441,7 @@ def test_stats_count_by_day_crop_and_channel(client, boss, lot, entry):
     ).json()
     assert got["series"] == ["Wheat", "Rice"]
     assert got["previous"] == 1
+    assert got["lotCount"] == 2
     assert got["columns"] == [{"Wheat": 2}, {"Rice": 1}, {"Rice": 1}]
     assert got["channels"] == [
         {"name": "Depot", "counts": {"Wheat": 2, "Rice": 1}},
@@ -493,7 +494,7 @@ def test_stats_with_nothing_yet(client, boss):
     ).json()
     assert got == {
         "series": [], "by": "crop", "first": None, "last": None, "channelCount": 0,
-        "previous": 0, "columns": [{}] * 7, "channels": [],
+        "lotCount": 0, "previous": 0, "columns": [{}] * 7, "channels": [],
     }
 
 

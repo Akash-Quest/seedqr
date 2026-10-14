@@ -318,6 +318,37 @@ a:hover {
   font-size: 0.92rem;
 }
 
+/* The right-hand end of a card heading: a note with a control beside it. */
+.card-head-end {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Day, week or month for each chart column. */
+select.step-select {
+  width: auto;
+  min-height: 0;
+  height: 1.9rem;
+  padding: 0 1.7rem 0 0.7rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--ink);
+  border-color: var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  /* Its own small arrow, the same in every browser. */
+  appearance: none;
+  background: #fff
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a6373' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+    no-repeat right 0.55rem center / 0.75rem;
+}
+
+select.step-select:hover {
+  border-color: var(--line-strong);
+  background-color: var(--paper);
+}
+
 .card-head + .card-body {
   padding-top: 0.4rem;
 }
@@ -790,6 +821,30 @@ input[type='checkbox'] {
   --tile: #9a5a0c;
 }
 
+/* A tile is a link to where its number comes from. */
+a.stat {
+  display: block;
+  text-decoration: none;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+
+a.stat.solid:hover {
+  color: #fff;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.18);
+}
+
+a.stat.solid:hover .stat-label {
+  text-decoration: underline;
+}
+
+/* The channels card, reached from its tile, stops below the page heading. */
+#channels {
+  scroll-margin-top: 6rem;
+}
+
 .stat.solid .stat-label,
 .stat.solid .stat-note {
   color: rgb(255 255 255 / 0.85);
@@ -927,7 +982,10 @@ input[type='checkbox'] {
 .chart-tip {
   position: absolute;
   top: 0;
-  left: calc(100% + 6px);
+  /* Beside the bar, not beside its slot: with only one or two columns a
+     slot is most of the chart wide, and the tip went past the card. The
+     bar is at most 24px wide, in the middle of the slot. */
+  left: calc(50% + 18px);
   z-index: 1;
   display: none;
   padding: 0.4rem 0.65rem;
@@ -969,7 +1027,7 @@ input[type='checkbox'] {
    so it is never cut off by the edge of the card. */
 .chart-columns li.at-end .chart-tip {
   left: auto;
-  right: calc(100% + 6px);
+  right: calc(50% + 18px);
 }
 
 .chart-columns li:hover .chart-tip,
@@ -1139,6 +1197,50 @@ input[type='checkbox'] {
 .legend.stacked li span:first-of-type {
   flex: 1;
   overflow-wrap: anywhere;
+}
+
+/* "Other", which opens to list what it is made of. */
+/* Plain text with an arrow, not a button: stronger than "button" and
+   "button:hover", which would paint it blue. */
+.legend .legend-open,
+.legend .legend-open:hover {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Stronger than ".donut svg", which sizes the ring itself. */
+.donut .legend-open svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin: 0;
+  color: var(--muted);
+  transition: transform 0.15s;
+}
+
+.donut .legend-open[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+/* One of the names inside "Other", indented under it. */
+.legend.stacked li.member {
+  padding-left: 1.7rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.legend.stacked li.member strong {
+  font-weight: 600;
 }
 
 .legend.stacked .muted {
@@ -1600,6 +1702,20 @@ tr.detail-row h3 {
 
 .date-filter input {
   width: auto;
+}
+
+/* The dashboard's own From and To, under its period buttons. */
+.custom-dates {
+  margin-top: 0.75rem;
+}
+
+.custom-dates input {
+  min-height: 0;
+  padding: 0.35rem 0.6rem;
+}
+
+.custom-dates label + input {
+  margin-right: 0.5rem;
 }
 
 /* The count, with the arrows for the page before and after beside it. */
