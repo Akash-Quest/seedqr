@@ -21,7 +21,6 @@ const CUSTOM = -1
 const RANGES = [
   // Everything since the first entry, however long ago that was.
   { days: ALL, label: 'All time' },
-  { days: 7, label: 'Last 7 days' },
   { days: 30, label: 'Last 30 days' },
   { days: 90, label: 'Last 90 days' },
   // From one picked day to another.
