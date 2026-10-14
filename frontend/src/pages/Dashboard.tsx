@@ -362,8 +362,6 @@ function Overview({
   start,
   end,
   size,
-  steps,
-  onStep,
   allTime,
   length,
   period,
