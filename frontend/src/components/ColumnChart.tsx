@@ -60,7 +60,11 @@ function ColumnChart({ columns, unit }: ColumnChartProps) {
                 // room: to the right in the left half, to the left in the right.
                 className={index < columns.length / 2 ? 'at-start' : 'at-end'}
               >
-                <span className="chart-stack" style={{ height: `${(sum / top) * 100}%` }}>
+                <span
+                  className="chart-stack"
+                  // Columns rise one after another, left to right.
+                  style={{ height: `${(sum / top) * 100}%`, animationDelay: `${Math.min(index * 18, 600)}ms` }}
+                >
                   {column.parts.map((part) => (
                     <span
                       key={part.name}

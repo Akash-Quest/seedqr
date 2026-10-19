@@ -7,14 +7,18 @@ import Field from '../components/Field'
 import FormEditor from '../components/FormEditor'
 import {
   CloseIcon,
+  CopyIcon,
   DownloadIcon,
   EditIcon,
   PrintIcon,
+  SearchIcon,
   TrashIcon,
 } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
+import { PageSkeleton } from '../components/Skeleton'
 import { DEPARTMENT, PUBLIC_URL } from '../config'
 import { api, canEdit, isAdmin, useApi } from '../data/api'
+import { toast } from '../data/toast'
 import { DEFAULT_FORMS, answer, checkCustom } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { formatDate } from '../data/types'
@@ -63,7 +67,7 @@ function Barcode() {
         {error ? (
           <p className="problem">{error}</p>
         ) : !lots ? (
-          <p className="muted">Loading…</p>
+          <PageSkeleton />
         ) : (
           <>
             <div className="tabs no-print">
@@ -129,6 +133,12 @@ function Barcode() {
                   // The same crop, variety and batch as a lot already here
                   // gives that lot back, with the QR code it always had.
                   setParams(lot.existing ? { lot: lot.id, existing: '1' } : { lot: lot.id })
+                  toast(
+                    lot.existing
+                      ? 'That seed lot was already here, so this is its QR code'
+                      : 'Seed lot saved. Its QR code is ready.',
+                    lot.existing ? 'info' : 'ok',
+                  )
                   reload()
                 }}
               />
@@ -140,6 +150,7 @@ function Barcode() {
                 onCancel={() => setParams({ lot: editing.id })}
                 onSaved={(lot) => {
                   setParams({ lot: lot.id })
+                  toast('Seed details saved. Labels already printed show the new details.')
                   reload()
                 }}
               />
@@ -154,6 +165,7 @@ function Barcode() {
                     onEdit={() => setParams({ edit: selected.id })}
                     onDeleted={() => {
                       setParams({})
+                      toast('Seed lot deleted. Its QR code no longer opens the form.')
                       reload()
                     }}
                     onClose={() => setParams({})}
@@ -179,6 +191,7 @@ function Barcode() {
                   }}
                   onDeleted={() => {
                     setParams({})
+                    toast('Seed lot deleted. Its QR code no longer opens the form.')
                     reload()
                   }}
                 />
@@ -318,10 +331,26 @@ type LotTableProps = {
   onDeleted: () => void
 }
 
+type Order = 'new' | 'most' | 'crop'
+
 function LotTable({ lots, selectedId, mayEdit, onShow, onEdit, onDeleted }: LotTableProps) {
   // The row whose delete button was pressed and is waiting for a yes or no.
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [failure, setFailure] = useState('')
+  const [filter, setFilter] = useState('')
+  const [order, setOrder] = useState<Order>('new')
+
+  const needle = filter.trim().toLowerCase()
+  const most = Math.max(1, ...lots.map((lot) => lot.entryCount ?? 0))
+  const shown = lots.filter(
+    (lot) =>
+      !needle ||
+      [lot.crop, lot.variety, lot.batchNo, lot.id].some((value) => value.toLowerCase().includes(needle)),
+  )
+  // The server sends the newest first; the other orders are made here.
+  if (order === 'most') shown.sort((a, b) => (b.entryCount ?? 0) - (a.entryCount ?? 0))
+  if (order === 'crop')
+    shown.sort((a, b) => a.crop.localeCompare(b.crop) || a.variety.localeCompare(b.variety))
 
   async function remove(id: string) {
     try {
@@ -337,7 +366,28 @@ function LotTable({ lots, selectedId, mayEdit, onShow, onEdit, onDeleted }: LotT
     <section className="card no-print">
       <div className="card-head">
         <h2>Seed lots</h2>
-        <p>Newest first</p>
+        <div className="card-head-end">
+          <label className="mini-search">
+            <SearchIcon />
+            <input
+              type="search"
+              aria-label="Find a seed lot by crop, variety, batch or code"
+              placeholder="Find a lot"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </label>
+          <select
+            className="step-select"
+            aria-label="Order of the list"
+            value={order}
+            onChange={(e) => setOrder(e.target.value as Order)}
+          >
+            <option value="new">Newest first</option>
+            <option value="most">Most entries</option>
+            <option value="crop">Crop A to Z</option>
+          </select>
+        </div>
       </div>
       <div className="table-wrap">
         <table>
@@ -355,14 +405,28 @@ function LotTable({ lots, selectedId, mayEdit, onShow, onEdit, onDeleted }: LotT
             </tr>
           </thead>
           <tbody>
-            {lots.map((lot, index) => (
-              <tr key={lot.id}>
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={7} className="muted">
+                  No seed lot matches “{filter.trim()}”.
+                </td>
+              </tr>
+            )}
+            {shown.map((lot, index) => (
+              <tr key={lot.id} className={lot.id === selectedId ? 'picked' : ''}>
                 <td className="number">{index + 1}</td>
                 <td className="strong">{lot.crop}</td>
                 <td>{lot.variety}</td>
                 <td className="mono">{lot.batchNo}</td>
                 <td>{formatDate(lot.date)}</td>
-                <td>{lot.entryCount ?? 0}</td>
+                <td>
+                  <span className="count-cell">
+                    <span className="count-bar" aria-hidden="true">
+                      <i style={{ width: `${((lot.entryCount ?? 0) / most) * 100}%` }} />
+                    </span>
+                    {(lot.entryCount ?? 0).toLocaleString('en-IN')}
+                  </span>
+                </td>
                 {confirmId === lot.id ? (
                   <td className="row-actions">
                     <span>
@@ -479,6 +543,15 @@ function QrLabel({ lot, existing, mayEdit, onEdit, onDeleted, onClose }: QrLabel
     }
   }
 
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(link)
+      toast('Link copied')
+    } catch {
+      toast(`This browser would not copy the link. It is ${link}`, 'error')
+    }
+  }
+
   function download() {
     if (!svgRef.current) return
     const svg = new XMLSerializer().serializeToString(svgRef.current)
@@ -576,6 +649,10 @@ function QrLabel({ lot, existing, mayEdit, onEdit, onDeleted, onClose }: QrLabel
               </button>
             </>
           )}
+          <button type="button" className="secondary" onClick={() => void copyLink()}>
+            <CopyIcon />
+            Copy link
+          </button>
           <button type="button" className="secondary" onClick={download}>
             <DownloadIcon />
             Download QR code

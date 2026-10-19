@@ -1,18 +1,37 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SyntheticEvent } from 'react'
 import { Link } from 'react-router-dom'
 import BarList from '../components/BarList'
 import type { BarRow } from '../components/BarList'
 import ColumnChart from '../components/ColumnChart'
 import type { Column } from '../components/ColumnChart'
+import CountUp from '../components/CountUp'
 import Donut from '../components/Donut'
-import { InboxIcon, PlusIcon, QrIcon, UsersIcon } from '../components/Icons'
+import Heatmap from '../components/Heatmap'
+import {
+  AlertIcon,
+  InboxIcon,
+  PhoneIcon,
+  PlusIcon,
+  QrIcon,
+  RefreshIcon,
+  SparkIcon,
+  TrendDownIcon,
+  TrendUpIcon,
+  UsersIcon,
+} from '../components/Icons'
 import PageHeader from '../components/PageHeader'
+import { PageSkeleton } from '../components/Skeleton'
+import Sparkline from '../components/Sparkline'
 import { canEdit, useApi } from '../data/api'
+import { insights } from '../data/insights'
+import type { Insight } from '../data/insights'
+import { ago, useNow } from '../data/motion'
 import { cropSeries, sum, total } from '../data/series'
 import type { Part, Series } from '../data/series'
+import { toast } from '../data/toast'
 import { formatDateTime } from '../data/types'
-import type { CropCounts, EntryPage, SeedLot, Stats } from '../data/types'
+import type { CropCounts, Stats } from '../data/types'
 
 // Stand for "All time" and "Custom" where the others give a number of days.
 const ALL = 0
@@ -21,6 +40,7 @@ const CUSTOM = -1
 const RANGES = [
   // Everything since the first entry, however long ago that was.
   { days: ALL, label: 'All time' },
+  { days: 7, label: 'Last 7 days' },
   { days: 30, label: 'Last 30 days' },
   { days: 90, label: 'Last 90 days' },
   // From one picked day to another.
@@ -40,6 +60,19 @@ const STEPS = [
 ]
 // The server refuses a chart of more columns than this.
 const MOST_DRAWN = 400
+
+// While "Live" is on, the numbers are asked for again this often. The
+// server keeps its answer until something changes, so this costs little.
+const LIVE_EVERY = 30_000
+const LIVE_KEY = 'seedcode.live'
+
+function liveChosen(): boolean {
+  try {
+    return localStorage.getItem(LIVE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
 
 function startOfDay(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
@@ -82,11 +115,15 @@ function columnName(size: number): string {
           : `${size} days`
 }
 
+function columnTotal(column: CropCounts): number {
+  return Object.values(column).reduce((a, b) => a + b, 0)
+}
+
 type Split = (counts: CropCounts) => Part[]
 
 // One column per day, or per week or longer for the wider views. The server
 // has already counted the entries for each.
-// The last column may be cut farmerhort by `last`, the final day of the period.
+// The last column may be cut short by `last`, the final day of the period.
 function buildColumns(
   counts: CropCounts[],
   start: number,
@@ -95,7 +132,8 @@ function buildColumns(
   split: Split,
 ): Column[] {
   const count = counts.length
-  const every = count <= 7 ? 1 : size === 1 ? 5 : 2
+  // About seven labels, however many columns, so they never run together.
+  const every = count <= 7 ? 1 : Math.ceil(count / 7)
   // Columns longer than a week can reach into another year.
   const label = size > 7 ? dayMonthYear : dayMonth
 
@@ -127,7 +165,9 @@ function Legend({ series }: { series: Series[] }) {
 }
 
 function Dashboard() {
-  const [now] = useState(() => new Date())
+  // Moves on each minute, so a dashboard left open past midnight shows the
+  // new day.
+  const now = new Date(useNow(60_000))
   // The dashboard opens on everything there is.
   const [days, setDays] = useState(ALL)
   // For "All time": midnight on the days of the very first and the latest
@@ -142,6 +182,7 @@ function Dashboard() {
   // server is not asked again at every click in the calendar.
   const [draftFrom, setDraftFrom] = useState('')
   const [draftTo, setDraftTo] = useState('')
+  const [live, setLive] = useState(liveChosen)
   const draftReady = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo
   const draftChanged = draftFrom !== from || draftTo !== to
   const custom = days === CUSTOM
@@ -191,12 +232,13 @@ function Dashboard() {
   const span = custom ? wanted : Math.ceil(wanted / size) * size
   const start = end - (span - 1) * DAY
   const since = encodeURIComponent(new Date(start).toISOString())
-  const until = encodeURIComponent(new Date(end + DAY).toISOString())
+  // How far the office's clock is ahead of UTC, for the busy-hours chart.
+  const tz = -now.getTimezoneOffset()
 
-  const lots = useApi<SeedLot[]>('/lots')
-  const stats = useApi<Stats>(`/stats?start=${since}&days=${span}&size=${size}`)
-  const latest = useApi<EntryPage>(`/entries?size=5&from=${since}&to=${until}`)
-
+  // Everything on this page comes in this one answer.
+  const stats = useApi<Stats>(`/stats?start=${since}&days=${span}&size=${size}&tz=${tz}`, {
+    every: live ? LIVE_EVERY : undefined,
+  })
   // How the period is named on the page.
   const period = custom
     ? `${dayMonthYear(start)} to ${dayMonthYear(end)}`
@@ -211,10 +253,8 @@ function Dashboard() {
     month: 'long',
     year: 'numeric',
   })
-  const error = lots.error || stats.error || latest.error
   // Wait for the numbers of the period now chosen, not the one before.
-  const ready =
-    lots.data && stats.data && latest.data && stats.fresh && latest.fresh && !finding
+  const ready = Boolean(stats.data && stats.fresh && !finding)
 
   // Every answer says when the first and latest entries came in. With none
   // yet, "All time" is simply the last week.
@@ -231,6 +271,61 @@ function Dashboard() {
         : { first: startOfDay(now) - 6 * DAY, last: startOfDay(now) },
     )
   }
+  // A newer entry came in since (Live, or a refresh): "All time" now reaches
+  // on to its day, so it shows up. Any answer knows the newest entry.
+  const newest = answer?.last ? startOfDay(new Date(answer.last)) : 0
+  if (days === ALL && whole && newest > whole.last) {
+    setWhole({ ...whole, last: newest })
+  }
+
+  // What is drawn: this period's numbers when they are here, otherwise the
+  // last period's, dimmed, so nothing jumps while the new ones load.
+  const view: OverviewProps | null =
+    ready && stats.data
+      ? {
+          stats: stats.data,
+          start,
+          end,
+          size,
+          steps,
+          onStep: setStep,
+          allTime: days === ALL,
+          endsToday: end >= startOfDay(now),
+          length: custom ? span : days,
+          period,
+          during,
+        }
+      : null
+  const [held, setHeld] = useState<OverviewProps | null>(null)
+  if (
+    view &&
+    (held === null ||
+      held.stats !== view.stats ||
+      held.start !== view.start ||
+      held.end !== view.end ||
+      held.size !== view.size)
+  ) {
+    setHeld(view)
+  }
+  const shown = view ?? held
+
+  // A message when Live brings in new entries for the period on screen.
+  const counted = useRef<{ key: string; entries: number } | null>(null)
+  const entriesNow =
+    ready && stats.data ? stats.data.columns.reduce((n, column) => n + columnTotal(column), 0) : -1
+  useEffect(() => {
+    if (entriesNow < 0) return
+    const key = `${since}|${span}|${size}`
+    const before = counted.current
+    if (before && before.key === key && entriesNow > before.entries) {
+      const more = entriesNow - before.entries
+      toast(
+        `${more.toLocaleString('en-IN')} new ${more === 1 ? 'entry' : 'entries'} just came in`,
+        'info',
+      )
+    }
+    counted.current = { key, entries: entriesNow }
+  }, [entriesNow, since, span, size])
 
   function choose(next: number) {
     // Looked up afresh each time, in case entries were imported since.
@@ -251,6 +346,17 @@ function Dashboard() {
     setTo(draftTo)
   }
 
+  function toggleLive() {
+    const next = !live
+    setLive(next)
+    try {
+      localStorage.setItem(LIVE_KEY, next ? 'on' : 'off')
+    } catch {
+      // Remembered for this visit only.
+    }
+    if (next) stats.reload()
+  }
+
   return (
     <>
       <PageHeader title="Dashboard" subtitle={today}>
@@ -263,24 +369,55 @@ function Dashboard() {
       </PageHeader>
 
       <div className="page">
-        {error ? (
-          <p className="problem">{error}</p>
-        ) : !lots.data || !stats.data || !latest.data ? (
-          <p className="muted">Loading…</p>
+        {stats.error && !shown ? (
+          <p className="problem">{stats.error}</p>
+        ) : !shown ? (
+          <PageSkeleton tiles={4} />
         ) : (
           <>
-            <div className="range" role="group" aria-label="Time period">
-              {RANGES.map((range) => (
+            <div className="filters-row">
+              <div className="range" role="group" aria-label="Time period">
+                {RANGES.map((range) => (
+                  <button
+                    key={range.days}
+                    type="button"
+                    className={range.days === days ? 'on' : ''}
+                    aria-pressed={range.days === days}
+                    onClick={() => choose(range.days)}
+                  >
+                    {range.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="live-controls">
                 <button
-                  key={range.days}
                   type="button"
-                  className={range.days === days ? 'on' : ''}
-                  aria-pressed={range.days === days}
-                  onClick={() => choose(range.days)}
+                  className={`live-toggle${live ? ' on' : ''}`}
+                  aria-pressed={live}
+                  title={
+                    live
+                      ? 'New entries appear by themselves. Press to pause.'
+                      : 'Press to show new entries as they come in'
+                  }
+                  onClick={toggleLive}
                 >
-                  {range.label}
+                  <span className="live-dot" aria-hidden="true" />
+                  {live ? 'Live' : 'Paused'}
                 </button>
-              ))}
+                <Updated at={stats.updatedAt} loading={stats.loading} />
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Check for new entries now"
+                  title="Check now"
+                  onClick={stats.reload}
+                >
+                  <span className={stats.loading ? 'spin' : 'still'}>
+                    <RefreshIcon />
+                  </span>
+                </button>
+              </div>
             </div>
 
             {custom && (
@@ -308,24 +445,9 @@ function Dashboard() {
               </form>
             )}
 
-            {ready ? (
-              <Overview
-                lots={lots.data}
-                stats={stats.data}
-                latest={latest.data.items}
-                start={start}
-                end={end}
-                size={size}
-                steps={steps}
-                onStep={setStep}
-                allTime={days === ALL}
-                length={custom ? span : days}
-                period={period}
-                during={during}
-              />
-            ) : (
-              <p className="muted">Loading…</p>
-            )}
+            {stats.error && <p className="problem">{stats.error}</p>}
+
+            <Overview {...shown} stale={!view} />
           </>
         )}
       </div>
@@ -334,10 +456,7 @@ function Dashboard() {
 }
 
 type OverviewProps = {
-  lots: SeedLot[]
   stats: Stats
-  // The newest few entries of the period.
-  latest: EntryPage['items']
   // Midnight on the first and the last day of the period, and how many
   // days a column covers.
   start: number
@@ -347,30 +466,36 @@ type OverviewProps = {
   steps: { size: number; label: string; fits: boolean }[]
   onStep: (size: number) => void
   allTime: boolean
+  // True when the period runs up to today.
+  endsToday: boolean
   // How many days the period has, for comparing with the days before it.
   length: number
   // The period's name ("last 30 days"), and the words for "in it".
   period: string
   during: string
+  // Numbers of an earlier period, shown dimmed while the new ones load.
+  stale?: boolean
 }
 
 function Overview({
-  lots,
   stats,
-  latest,
   start,
   end,
   size,
+  steps,
+  onStep,
   allTime,
+  endsToday,
   length,
   period,
   during,
+  stale = false,
 }: OverviewProps) {
   const crops = cropSeries(stats.series)
   const cropParts = crops.split(sum(stats.columns))
   const current = total(cropParts)
-  // Lots nobody has scanned at all, whatever the period.
-  const unused = lots.filter((lot) => !lot.entryCount)
+  const kpis = stats.kpis
+  const lots = stats.lots
   const first = stats.first ? dayMonthYear(new Date(stats.first).getTime()) : ''
   const last = stats.last ? dayMonthYear(new Date(stats.last).getTime()) : ''
   const channelRows: BarRow[] = stats.channels.map((channel) => ({
@@ -378,9 +503,20 @@ function Overview({
     parts: crops.split(channel.counts),
   }))
   const columns = buildColumns(stats.columns, start, end, size, crops.split)
+  const found = insights({
+    stats,
+    parts: cropParts,
+    current,
+    allTime,
+    days: Math.max(1, Math.round((end - start) / DAY) + 1),
+    columnName: columnName(size),
+    columnNames: columns.map((column) => column.name),
+    endsToday,
+    period,
+  })
 
   return (
-    <>
+    <div className={`overview${stale ? ' stale' : ''}`} aria-busy={stale}>
       <div className="stats">
         {/* Each tile opens where its number comes from. */}
         <Link className="card stat solid blue" to="/users" title="See the farmer entries">
@@ -388,7 +524,9 @@ function Overview({
             <InboxIcon />
           </span>
           <p className="stat-label">Farmer entries</p>
-          <p className="stat-value">{current.toLocaleString('en-IN')}</p>
+          <p className="stat-value">
+            <CountUp value={current} />
+          </p>
           {allTime ? (
             // Nothing came before all time, so there is nothing to compare.
             <p className="stat-note">
@@ -397,6 +535,24 @@ function Overview({
           ) : (
             <Change now={current} before={stats.previous} days={length} />
           )}
+          <Sparkline values={stats.columns.map(columnTotal)} />
+        </Link>
+
+        <Link className="card stat solid plum" to="/users" title="See the farmer entries">
+          <span className="stat-icon" aria-hidden="true">
+            <UsersIcon />
+          </span>
+          <p className="stat-label">Farmers reached</p>
+          <p className="stat-value">
+            <CountUp value={kpis.farmers} />
+          </p>
+          <p className="stat-note">
+            {kpis.farmers === 0
+              ? 'counted by mobile number'
+              : kpis.repeatFarmers > 0
+                ? `${kpis.repeatFarmers.toLocaleString('en-IN')} numbers on more than one entry`
+                : 'every mobile number different'}
+          </p>
         </Link>
 
         <Link className="card stat solid green" to="/barcode" title="See the seed lots">
@@ -408,28 +564,30 @@ function Overview({
               import, long after the entries in it came in. */}
           <p className="stat-label">{allTime ? 'Seed lots' : 'Seed lots with entries'}</p>
           <p className="stat-value">
-            {(allTime ? lots.length : stats.lotCount).toLocaleString('en-IN')}
+            <CountUp value={allTime ? lots.total : stats.lotCount} />
           </p>
           <p className="stat-note">
             {allTime
-              ? lots.length === 0
+              ? lots.total === 0
                 ? 'none yet'
-                : unused.length === 0
+                : lots.unused === 0
                   ? 'every lot has farmer entries'
-                  : `${unused.length} with no entries yet`
+                  : `${lots.unused.toLocaleString('en-IN')} with no entries yet`
               : stats.lotCount === 0
                 ? 'none in this period'
-                : `of ${lots.length.toLocaleString('en-IN')} in all`}
+                : `of ${lots.total.toLocaleString('en-IN')} in all`}
           </p>
         </Link>
 
         {/* The channels are listed further down this page. */}
         <a className="card stat solid amber" href="#channels" title="See the busiest channels">
           <span className="stat-icon" aria-hidden="true">
-            <UsersIcon />
+            <PhoneIcon />
           </span>
           <p className="stat-label">Distribution channels</p>
-          <p className="stat-value">{stats.channelCount.toLocaleString('en-IN')}</p>
+          <p className="stat-value">
+            <CountUp value={stats.channelCount} />
+          </p>
           {/* A channel's name is too long to fit here; the list of the
               busiest channels further down has the names. */}
           <p className="stat-note">
@@ -438,6 +596,11 @@ function Overview({
               : 'none in this period'}
           </p>
         </a>
+      </div>
+
+      <div className="split wide">
+        <Insights items={found} />
+        <Quality kpis={kpis} current={current} />
       </div>
 
       <div className="split wide">
@@ -450,31 +613,24 @@ function Overview({
               <p>
                 {current.toLocaleString('en-IN')} {during}
               </p>
-              {/* <select
-                className="step-select"
-                aria-label="One column for each"
-                value={size}
-                onChange={(e) => onStep(Number(e.target.value))}
-              >
-
-                {!steps.some((choice) => choice.size === size) && (
-                  <option value={size}>
-                    {columnName(size).charAt(0).toUpperCase() + columnName(size).slice(1)}
-                  </option>
-                )}
+              <div className="range small" role="group" aria-label="One column for each">
                 {steps.map((choice) => (
-                  <option key={choice.size} value={choice.size} disabled={!choice.fits}>
+                  <button
+                    key={choice.size}
+                    type="button"
+                    className={choice.size === size ? 'on' : ''}
+                    aria-pressed={choice.size === size}
+                    disabled={!choice.fits}
+                    onClick={() => onStep(choice.size)}
+                  >
                     {choice.label}
-                  </option>
+                  </button>
                 ))}
-              </select> */}
+              </div>
             </div>
           </div>
           <div className="card-body">
-            <ColumnChart
-              columns={columns}
-              unit={['entry', 'entries']}
-            />
+            <ColumnChart columns={columns} unit={['entry', 'entries']} />
             {/* Under the chart, so the bars come first. */}
             <Legend series={cropParts} />
           </div>
@@ -499,6 +655,18 @@ function Overview({
         </section>
       </div>
 
+      {stats.heatmap.length === 7 && (
+        <section className="card">
+          <div className="card-head">
+            <h2>When farmers fill in the form</h2>
+            <p>By day of the week and hour, {period}</p>
+          </div>
+          <div className="card-body">
+            <Heatmap counts={stats.heatmap} />
+          </div>
+        </section>
+      )}
+
       <div className="split">
         <section className="card" id="channels">
           <div className="card-head">
@@ -514,55 +682,21 @@ function Overview({
           )}
         </section>
 
-        <section className="card">
-          <div className="card-head">
-            <h2>Latest farmer entries</h2>
-            {current > 0 && <Link to="/users">See all</Link>}
-          </div>
-          {current === 0 ? (
-            <p className="empty">
-              <strong>
-                {allTime ? 'Nothing has come in yet' : `Nothing came in ${during}`}
-              </strong>
-              {lots.length === 0
-                ? 'Add a seed lot and print its QR code to get started.'
-                : 'Entries appear here when a farmer scans a bag and submits the form.'}
-            </p>
-          ) : (
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Farmer</th>
-                    <th>Crop</th>
-                    <th>Quantity</th>
-                    <th>Received</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latest.map((e) => (
-                    <tr key={e.id}>
-                      <td className="strong">{e.farmerName}</td>
-                      <td>{e.lot?.crop}</td>
-                      <td>{e.quantity}</td>
-                      <td>{formatDateTime(e.receivedAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        <Latest
+          entries={stats.latest}
+          empty={allTime ? 'Nothing has come in yet' : `Nothing came in ${during}`}
+          noLots={lots.total === 0}
+        />
       </div>
 
-      {unused.length > 0 && (
+      {lots.unused > 0 && (
         <section className="card">
           <div className="card-head">
             <h2>New lots nobody has scanned yet</h2>
-            <p>{unused.length} waiting</p>
+            <p>{lots.unused.toLocaleString('en-IN')} waiting</p>
           </div>
           <ul className="rows">
-            {unused.slice(0, 5).map((lot) => (
+            {lots.waiting.map((lot) => (
               <li key={lot.id}>
                 <span>
                   <strong>
@@ -576,8 +710,186 @@ function Overview({
           </ul>
         </section>
       )}
-    </>
+    </div>
   )
+}
+
+const INSIGHT_ICONS = {
+  up: TrendUpIcon,
+  down: TrendDownIcon,
+  warn: AlertIcon,
+  info: SparkIcon,
+}
+
+const FIRST_INSIGHTS = 5
+
+// What the numbers say, written out: things to check and changes first.
+function Insights({ items }: { items: Insight[] }) {
+  const [all, setAll] = useState(false)
+  const shown = all ? items : items.slice(0, FIRST_INSIGHTS)
+  return (
+    <section className="card insights">
+      <div className="card-head">
+        <h2 className="with-icon">
+          <SparkIcon /> Insights
+        </h2>
+        <p>Worked out from the numbers on this page</p>
+      </div>
+      <ul className="insight-list">
+        {shown.map((item, index) => {
+          const Icon = INSIGHT_ICONS[item.tone]
+          return (
+            <li
+              key={item.key}
+              className={`insight ${item.tone}`}
+              style={{ animationDelay: `${index * 70}ms` }}
+            >
+              <span className="insight-icon" aria-hidden="true">
+                <Icon />
+              </span>
+              <div>
+                <strong>{item.title}</strong>
+                <p>{item.text}</p>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      {items.length > FIRST_INSIGHTS && (
+        <div className="card-foot">
+          <button type="button" className="link-button" onClick={() => setAll(!all)}>
+            {all ? 'Show fewer' : `Show ${items.length - FIRST_INSIGHTS} more`}
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// How complete the entries are: the details the office relies on later.
+function Quality({ kpis, current }: { kpis: Stats['kpis']; current: number }) {
+  const rows = [
+    { label: 'Mobile number given', value: kpis.withContact },
+    { label: 'ID number given', value: kpis.withId },
+    { label: 'Filled in by a field officer', value: kpis.byOfficer },
+  ]
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>What the entries contain</h2>
+        <p>Share of entries in the period</p>
+      </div>
+      <div className="card-body meters">
+        {rows.map((row) => {
+          const share = current > 0 ? Math.round((row.value / current) * 100) : 0
+          return (
+            <div key={row.label} className="meter">
+              <div className="meter-label">
+                <span>{row.label}</span>
+                <strong>{share}%</strong>
+              </div>
+              <span
+                className="meter-track"
+                role="meter"
+                aria-label={row.label}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={share}
+              >
+                <span style={{ width: `${share}%` }} />
+              </span>
+              <span className="meter-note">
+                {row.value.toLocaleString('en-IN')} of {current.toLocaleString('en-IN')}
+              </span>
+            </div>
+          )
+        })}
+        <p className="meter-foot">
+          <PhoneIcon />
+          {kpis.devices === 0
+            ? 'No phones recorded yet.'
+            : `${kpis.devices.toLocaleString('en-IN')} different ${kpis.devices === 1 ? 'phone' : 'phones'} sent these entries.`}
+        </p>
+      </div>
+    </section>
+  )
+}
+
+// The newest entries of the period. Rows that arrived since the last look
+// light up for a moment.
+function Latest({
+  entries,
+  empty,
+  noLots,
+}: {
+  entries: Stats['latest']
+  empty: string
+  noLots: boolean
+}) {
+  // Rows that were not in the list last time, when the list moved on by a
+  // few rather than being replaced (another period was picked).
+  const ids = entries.map((entry) => entry.id).join('\n')
+  const [last, setLast] = useState({ ids, fresh: new Set<string>() })
+  if (last.ids !== ids) {
+    const before = new Set(last.ids.split('\n'))
+    const kept = entries.filter((entry) => before.has(entry.id)).length
+    setLast({
+      ids,
+      fresh: new Set(kept > 0 ? entries.filter((e) => !before.has(e.id)).map((e) => e.id) : []),
+    })
+  }
+  const clock = useNow(15_000)
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>Latest farmer entries</h2>
+        {entries.length > 0 && <Link to="/users">See all</Link>}
+      </div>
+      {entries.length === 0 ? (
+        <p className="empty">
+          <strong>{empty}</strong>
+          {noLots
+            ? 'Add a seed lot and print its QR code to get started.'
+            : 'Entries appear here when a farmer scans a bag and submits the form.'}
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Farmer</th>
+                <th>Crop</th>
+                <th>Quantity</th>
+                <th>Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => {
+                const received = new Date(e.receivedAt).getTime()
+                return (
+                  <tr key={e.id} className={last.fresh.has(e.id) ? 'fresh' : ''}>
+                    <td className="strong">{e.farmerName}</td>
+                    <td>{e.crop}</td>
+                    <td>{e.quantity}</td>
+                    <td title={formatDateTime(e.receivedAt)}>
+                      {clock - received < DAY ? ago(received, clock) : formatDateTime(e.receivedAt)}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// "Updated 20 seconds ago", with its own clock so only it redraws as time passes.
+function Updated({ at, loading }: { at?: number; loading: boolean }) {
+  const clock = useNow()
+  return <span className="muted updated">{loading ? 'Updating…' : `Updated ${ago(at, clock)}`}</span>
 }
 
 // How this period compares with the one just before it.
@@ -586,13 +898,14 @@ function Change({ now, before, days }: { now: number; before: number; days: numb
   if (difference === 0) {
     return <p className="stat-note">same as the {days} days before</p>
   }
+  const share = before > 0 ? ` (${Math.round((Math.abs(difference) / before) * 100)}%)` : ''
   return (
     <p className="stat-note">
       <span className={difference > 0 ? 'up' : 'down'} aria-hidden="true">
         {difference > 0 ? '▲' : '▼'}
       </span>{' '}
-      {Math.abs(difference).toLocaleString('en-IN')} {difference > 0 ? 'more' : 'fewer'} than the {days} days
-      before
+      {Math.abs(difference).toLocaleString('en-IN')}
+      {share} {difference > 0 ? 'more' : 'fewer'} than the {days} days before
     </p>
   )
 }

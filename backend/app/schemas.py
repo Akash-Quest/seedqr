@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 from pydantic import (
     BaseModel,
     ConfigDict,
+    Field,
+    RootModel,
     StringConstraints,
     field_serializer,
     field_validator,
@@ -15,9 +17,19 @@ from pydantic.alias_generators import to_camel
 Text = Annotated[str, StringConstraints(max_length=300)]
 Required = Annotated[str, StringConstraints(min_length=1, max_length=300)]
 
+# Times outside these years are typing mistakes or attempts to break the
+# date arithmetic, never real entries.
+EARLIEST_YEAR = 1970
+LATEST_YEAR = 2200
+
 
 def utc_iso(value: dt.datetime) -> str:
     return value.replace(tzinfo=dt.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def no_nul(value: str) -> str:
+    # PostgreSQL cannot store the NUL character, and no one types it.
+    return value.replace("\x00", "")
 
 
 class Wire(BaseModel):
@@ -29,33 +41,52 @@ class Wire(BaseModel):
     )
 
 
-class Login(Wire):
-    username: str = ""
-    password: str = ""
+class Input(Wire):
+    """Anything a browser or phone sends."""
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def drop_nul(cls, value):
+        return no_nul(value) if isinstance(value, str) else value
+
+
+class Login(Input):
+    # Long enough for any real password; a longer one would only make
+    # checking it slow.
+    username: Annotated[str, StringConstraints(max_length=200)] = ""
+    password: Annotated[str, StringConstraints(max_length=200)] = ""
 
 
 def tidy_extra(value) -> dict[str, str]:
     """Answers to custom questions: short text values under short keys."""
     if not isinstance(value, dict):
         return {}
-    return {str(k)[:40]: str(v)[:1000] for k, v in list(value.items())[:50] if v is not None}
+    return {
+        no_nul(str(k))[:40]: no_nul(str(v))[:1000]
+        for k, v in list(value.items())[:50]
+        if v is not None
+    }
 
 
-class FieldSpec(Wire):
+Option = Annotated[str, StringConstraints(max_length=300)]
+
+
+class FieldSpec(Input):
     """One question on a form, as the office set it up."""
 
     key: Annotated[str, StringConstraints(min_length=1, max_length=40)]
     label: Annotated[str, StringConstraints(max_length=200)] = ""
     hint: Annotated[str, StringConstraints(max_length=300)] = ""
-    type: str = "text"
-    options: list[str] = []
+    type: Annotated[str, StringConstraints(max_length=20)] = "text"
+    # The distribution channels are the longest list (see forms.MAX_CHANNELS).
+    options: Annotated[list[Option], Field(max_length=2000)] = []
     required: bool = False
     hidden: bool = False
     builtin: bool = False
     core: bool = False
 
 
-class LotIn(Wire):
+class LotIn(Input):
     # Crop, variety, batch number and date are always required. Whether the
     # others are is the office's choice, checked in forms.check_lot().
     date: dt.date
@@ -121,6 +152,9 @@ class LotOut(Wire):
         return utc_iso(value) if value else None
 
 
+LotList = RootModel[list[LotOut]]
+
+
 class LotMade(LotOut):
     """The answer to adding a seed lot."""
 
@@ -129,7 +163,7 @@ class LotMade(LotOut):
     existing: bool = False
 
 
-class EntryIn(Wire):
+class EntryIn(Input):
     id: Annotated[str, StringConstraints(min_length=8, max_length=64)]
     lot_id: Annotated[str, StringConstraints(min_length=1, max_length=8)]
     date: Annotated[str, StringConstraints(max_length=20)] = ""
@@ -168,7 +202,7 @@ class EntryIn(Wire):
         # Older entries have none. Keep it small: short text values only.
         if not isinstance(value, dict):
             return {}
-        return {str(k)[:40]: str(v)[:200] for k, v in list(value.items())[:30]}
+        return {no_nul(str(k))[:40]: no_nul(str(v))[:200] for k, v in list(value.items())[:30]}
 
 
 class EntryOut(EntryIn):
@@ -193,7 +227,7 @@ class EntryOut(EntryIn):
         return utc_iso(value) if value else None
 
 
-class EntryChange(Wire):
+class EntryChange(Input):
     """A correction to an entry, made in the office. Which seed lot it
     belongs to, when it was received and what phone sent it never change."""
 
@@ -215,7 +249,7 @@ class EntryChange(Wire):
         return tidy_extra(value)
 
 
-class SeedIn(Wire):
+class SeedIn(Input):
     """The seed details written on a row of an imported file, for files
     that have them in place of a QR code."""
 
@@ -250,7 +284,11 @@ class ImportRow(EntryIn):
     @field_validator("received_at")
     @classmethod
     def stored_as_utc(cls, value: dt.datetime | None) -> dt.datetime | None:
-        if value is not None and value.tzinfo is not None:
+        if value is None:
+            return value
+        if not EARLIEST_YEAR <= value.year <= LATEST_YEAR:
+            raise ValueError("not a real time")
+        if value.tzinfo is not None:
             value = value.astimezone(dt.timezone.utc).replace(tzinfo=None)
         return value
 
@@ -291,6 +329,63 @@ class Stats(Wire):
     # One per day or week: how many entries each crop had.
     columns: list[dict[str, int]]
     channels: list[ChannelCount]
+    # The rest feeds the dashboard's insights.
+    kpis: "Kpis | None" = None
+    # Entries by day of the week (0 is Sunday) and hour, in the office's
+    # own time: seven rows of 24 counts.
+    heatmap: list[list[int]] = []
+    lots: "LotSummary | None" = None
+    # The newest few entries of the period.
+    latest: list["LatestEntry"] = []
+
+
+class Kpis(Wire):
+    """Counts about the entries of the period, beyond how many there were."""
+
+    # Different mobile numbers given, and how many of them appear on more
+    # than one entry (the same farmer twice, or a shared phone).
+    farmers: int = 0
+    repeat_farmers: int = 0
+    with_id: int = 0
+    with_contact: int = 0
+    by_officer: int = 0
+    # Different phones the entries were sent from.
+    devices: int = 0
+
+
+class WaitingLot(Wire):
+    id: str
+    crop: str
+    variety: str
+    batch_no: str
+    created_at: dt.datetime
+
+    @field_serializer("created_at")
+    def created_utc(self, value: dt.datetime) -> str:
+        return utc_iso(value)
+
+
+class LotSummary(Wire):
+    """Seed lots in use now, whatever the period."""
+
+    total: int
+    # Lots nobody has scanned yet, and the newest few of them.
+    unused: int
+    waiting: list[WaitingLot]
+
+
+class LatestEntry(Wire):
+    id: str
+    farmer_name: str
+    crop: str
+    variety: str
+    quantity: str
+    channel: str
+    received_at: dt.datetime
+
+    @field_serializer("received_at")
+    def received_utc(self, value: dt.datetime) -> str:
+        return utc_iso(value)
 
 
 class Imported(Wire):
@@ -317,13 +412,13 @@ class Token(Wire):
     role: Role
 
 
-class StaffNew(Wire):
+class StaffNew(Input):
     username: Annotated[str, StringConstraints(min_length=3, max_length=100)]
     password: Password
     role: Role
 
 
-class StaffChange(Wire):
+class StaffChange(Input):
     role: Role
     active: bool
     # Left out to keep the password as it is.
@@ -348,3 +443,6 @@ class Address(Wire):
 
 class Ok(Wire):
     ok: bool = True
+
+
+Stats.model_rebuild()

@@ -13,7 +13,7 @@ import re
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from . import schemas
+from . import cache, schemas
 from .channels import CHANNELS
 from .models import FormSettings, utc_now
 
@@ -64,16 +64,31 @@ MAX_CHANNELS = 2000
 
 
 def clean_options(options: list[str], limit: int) -> list[str]:
-    out = []
+    # A dict keeps the order and finds a repeat in one step, however long
+    # the list is.
+    out: dict[str, None] = {}
     for option in options:
         option = " ".join(str(option).split())[:300]
-        if option and option not in out:
-            out.append(option)
-    return out[:limit]
+        if option:
+            out.setdefault(option)
+            if len(out) >= limit:
+                break
+    return list(out)
 
 
 def load(form: str, db: Session) -> list[dict]:
-    """The form's questions in order, with the office's changes applied."""
+    """The form's questions in order, with the office's changes applied.
+    Asked for at every scan of a bag, so kept until the forms change. What
+    comes back is shared: read it, never change it."""
+    return cache.remember(("form", form), ("forms",), lambda: _load(form, db))
+
+
+def public(form: str, db: Session) -> list[dict]:
+    """The questions a farmer's phone needs: hidden ones stay in the office."""
+    return [field for field in load(form, db) if not field["hidden"]]
+
+
+def _load(form: str, db: Session) -> list[dict]:
     defaults = {field["key"]: field for field in DEFAULTS[form]}
     row = db.get(FormSettings, form)
     saved = row.fields if row is not None and isinstance(row.fields, list) else []
@@ -154,6 +169,7 @@ def save(form: str, fields: list[schemas.FieldSpec], db: Session) -> list[dict]:
         row.fields = stored
         row.updated_at = utc_now()
     db.commit()
+    cache.changed("forms")
     return load(form, db)
 
 
@@ -180,6 +196,27 @@ def check_custom(field: dict, value: str) -> str:
     elif field["type"] == "select" and value not in field["options"]:
         raise HTTPException(400, f"“{label}” must be one of its choices.")
     return value
+
+
+def farmer_answers(extra: dict[str, str], db: Session) -> dict[str, str]:
+    """Answers to custom questions on an entry from a farmer's phone.
+
+    Never refused: the phone may have been filled in offline against an
+    older form, and the entry must not be lost for that. So an answer to a
+    question the office knows is kept only if it fits the question, and an
+    answer to an unknown one only if it has a key the office could have
+    made. Anything else is dropped, not stored."""
+    fields = {field["key"]: field for field in load("farmer", db) if not field["builtin"]}
+    kept = {}
+    for key, value in extra.items():
+        if key in fields:
+            try:
+                kept[key] = check_custom(fields[key], value)
+            except HTTPException:
+                continue
+        elif CUSTOM_KEY.fullmatch(key):
+            kept[key] = value.strip()[:1000]
+    return kept
 
 
 def check_lot(body: schemas.LotIn, db: Session) -> dict[str, str]:

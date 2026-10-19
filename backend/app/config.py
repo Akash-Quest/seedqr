@@ -21,14 +21,28 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 5
     session_hours: int = 12
-    # The interactive API pages at /api/docs.
-    docs: bool = True
+    # The interactive API pages at /api/docs. Off unless asked for, so a
+    # server on the internet does not describe itself to strangers.
+    docs: bool = False
     host: str = "127.0.0.1"
     port: int = 8010
     reload: bool = True
     # This computer's address on the local network. Only needed inside
     # Docker, where the backend cannot find it out by itself.
     lan_address: str = ""
+
+    # True when every request comes through one proxy (nginx, or Vite in
+    # development) that adds the caller's address to X-Forwarded-For. Turn
+    # it off if the backend is ever reached directly, since a caller could
+    # then write any address there and slip past the limits below.
+    behind_proxy: bool = True
+    # Wrong passwords allowed from one address for one username in 15
+    # minutes, before that pair has to wait.
+    login_attempts: int = 10
+    # Farmer entries one network address may send in a minute. Generous:
+    # many phones can share one address on a mobile network, and a phone
+    # that was offline sends all its saved entries at once.
+    entries_per_minute: int = 120
 
 
 settings = Settings()

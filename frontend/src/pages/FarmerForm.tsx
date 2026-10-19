@@ -16,6 +16,7 @@ import {
   queueEntry,
   sendPending,
   usePendingCount,
+  wasRefused,
 } from '../data/outbox'
 import type { FarmerEntry, KycType, PublicLot, SeedLot } from '../data/types'
 
@@ -131,9 +132,15 @@ function Confirmation({ sent, onAnother }: { sent: boolean; onAnother: () => voi
   return (
     <>
       {sent ? (
-        <div className="notice" role="status">
-          <h1>Sent</h1>
-          <p>Your details have been received. Thank you.</p>
+        <div className="notice sent" role="status">
+          <svg className="tick" viewBox="0 0 52 52" aria-hidden="true">
+            <circle cx="26" cy="26" r="23" />
+            <path d="M15 27l7.5 7.5L37 19" />
+          </svg>
+          <div>
+            <h1>Sent</h1>
+            <p>Your details have been received. Thank you.</p>
+          </div>
         </div>
       ) : (
         <div className="warning" role="status">
@@ -281,19 +288,29 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       userAgent: navigator.userAgent,
     }
 
+    const refusedMessage =
+      'These details could not be accepted. Check them, and if this keeps happening, tell the person who gave you the bag.'
     try {
       // Save on the phone first, then try to send.
       await queueEntry(entry)
       await sendPending()
+      if (wasRefused(entry.id)) {
+        setFailure(refusedMessage)
+        setBusy(false)
+        return
+      }
       onSaved('queued')
     } catch {
       // This phone cannot store data (for example private browsing),
       // so the only option is to send straight away.
-      if (await postEntry(entry)) {
+      const result = await postEntry(entry)
+      if (result === 'sent') {
         onSaved('sent')
       } else {
         setFailure(
-          'Your details could not be sent or saved. Check your internet and press Submit again.',
+          result === 'refused'
+            ? refusedMessage
+            : 'Your details could not be sent or saved. Check your internet and press Submit again.',
         )
         setBusy(false)
       }

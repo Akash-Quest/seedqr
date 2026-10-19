@@ -102,7 +102,7 @@ function SignIn() {
           <Field id="username" label="Username" error={nameError}>
             <input
               id="username"
-              type="email"
+              type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"

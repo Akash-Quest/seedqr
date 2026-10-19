@@ -96,6 +96,36 @@ export type Stats = {
   // One per day or week.
   columns: CropCounts[]
   channels: { name: string; counts: CropCounts }[]
+  // Counts about the period's entries beyond how many there were.
+  kpis: {
+    // Different mobile numbers, and those on more than one entry.
+    farmers: number
+    repeatFarmers: number
+    withId: number
+    withContact: number
+    byOfficer: number
+    // Different phones the entries were sent from.
+    devices: number
+  }
+  // Entries by day of the week (Sunday first) and hour, on the office's clock.
+  heatmap: number[][]
+  // Seed lots in use now, whatever the period.
+  lots: {
+    total: number
+    unused: number
+    // The newest few lots nobody has scanned yet.
+    waiting: { id: string; crop: string; variety: string; batchNo: string; createdAt: string }[]
+  }
+  // The newest few entries of the period.
+  latest: {
+    id: string
+    farmerName: string
+    crop: string
+    variety: string
+    quantity: string
+    channel: string
+    receivedAt: string
+  }[]
 }
 
 // Someone in the office who can sign in.

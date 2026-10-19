@@ -189,3 +189,85 @@ export function TrashIcon() {
     </Icon>
   )
 }
+
+export function SearchIcon() {
+  return (
+    <Icon>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M20 20l-4.2-4.2" />
+    </Icon>
+  )
+}
+
+export function CopyIcon() {
+  return (
+    <Icon>
+      <rect x="8.5" y="8.5" width="11" height="11" rx="2" />
+      <path d="M15.5 8.5V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7.5a2 2 0 0 0 2 2h2.5" />
+    </Icon>
+  )
+}
+
+export function CheckIcon() {
+  return (
+    <Icon>
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </Icon>
+  )
+}
+
+// A spark: something the numbers say, worked out for the reader.
+export function SparkIcon() {
+  return (
+    <Icon>
+      <path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9z" />
+      <path d="M18.5 16v4M16.5 18h4" />
+    </Icon>
+  )
+}
+
+export function AlertIcon() {
+  return (
+    <Icon>
+      <path d="M12 4l9 16H3z" />
+      <path d="M12 10v4.5M12 17.5h.01" />
+    </Icon>
+  )
+}
+
+export function TrendUpIcon() {
+  return (
+    <Icon>
+      <path d="M3.5 17l6-6 4 4 7-7.5" />
+      <path d="M15 7.5h5.5V13" />
+    </Icon>
+  )
+}
+
+export function TrendDownIcon() {
+  return (
+    <Icon>
+      <path d="M3.5 7l6 6 4-4 7 7.5" />
+      <path d="M15 16.5h5.5V11" />
+    </Icon>
+  )
+}
+
+export function PhoneIcon() {
+  return (
+    <Icon>
+      <rect x="7" y="3" width="10" height="18" rx="2" />
+      <path d="M11 17.5h2" />
+    </Icon>
+  )
+}
+
+export function WifiOffIcon() {
+  return (
+    <Icon>
+      <path d="M4 4l16 16" />
+      <path d="M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5-2.7M14 10.4A10 10 0 0 1 19 13M2 9.5a15 15 0 0 1 4.3-2.8M10.7 5.5A15 15 0 0 1 22 9.5" />
+      <path d="M12 20h.01" />
+    </Icon>
+  )
+}

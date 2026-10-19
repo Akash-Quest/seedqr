@@ -1,6 +1,7 @@
 // Keeps the farmer form usable when the signal drops, and sends saved
 // entries in the background where the browser allows it (Android Chrome).
-const CACHE = 'seedcode-v1'
+// Must match the name in src/main.tsx. A new name drops the old copies.
+const CACHE = 'seedcode-v2'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -12,17 +13,25 @@ self.addEventListener('install', (event) => {
 })
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    caches
+      .keys()
+      .then((names) => Promise.all(names.filter((name) => name !== CACHE).map((name) => caches.delete(name))))
+      .then(() => self.clients.claim()),
+  )
 })
+
+// Only the app itself is kept: the page, and the built files whose names
+// change whenever their content does. Nothing else on the site, and never
+// an answer from the API, which may hold farmers' details.
+function isAppFile(url) {
+  return url.pathname.startsWith('/assets/') || url.pathname === '/favicon.svg'
+}
 
 self.addEventListener('fetch', (event) => {
   const request = event.request
   const url = new URL(request.url)
-  if (
-    request.method !== 'GET' ||
-    url.origin !== self.location.origin ||
-    url.pathname.startsWith('/api/')
-  ) {
+  if (request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) {
     return
   }
 
@@ -42,7 +51,10 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Scripts, styles and images: saved copy first.
+  if (!isAppFile(url)) return
+
+  // Built files: the saved copy first. Their names change with their
+  // content, so a saved copy is never out of date.
   event.respondWith(
     caches.match(request).then(
       (hit) =>
@@ -83,6 +95,9 @@ function run(db, mode, work) {
   })
 }
 
+// Answers that mean the server will never take the entry (see outbox.ts).
+const REFUSED = [400, 404, 413, 422]
+
 async function sendPending() {
   const db = await openDb()
   const entries = await run(db, 'readonly', (store) => store.getAll())
@@ -93,7 +108,7 @@ async function sendPending() {
       body: JSON.stringify(entry),
     })
     // Throwing makes the browser try again later.
-    if (!response.ok) throw new Error('Entry was not accepted')
+    if (!response.ok && !REFUSED.includes(response.status)) throw new Error('Entry was not accepted')
     await run(db, 'readwrite', (store) => store.delete(entry.id))
   }
 }

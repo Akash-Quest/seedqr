@@ -1,13 +1,32 @@
+# The whole site: the database, a one-off step that updates it, and the app.
+# Settings come from .env next to this file (see .env.example).
+#   docker compose up -d --build
+
+name: seedcode
+
+# Logs are kept small: the server's disk is shared with other sites.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 x-app: &app
-  build:
-    context: .
-    args:
-      VITE_PUBLIC_URL: ${PUBLIC_URL:-}
   image: seedcode
   environment: &app-environment
     DATABASE_URL: postgresql+psycopg://seedcode:${POSTGRES_PASSWORD}@db:5432/seedcode
     LAN_ADDRESS: ${LAN_ADDRESS:-}
+    DOCS: ${DOCS:-false}
+  logging: *logging
+  # Nothing in the container may change: the code is read-only and the app
+  # holds no extra powers, even if something in it were taken over.
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 200
 
 services:
   db:
@@ -17,8 +36,25 @@ services:
       POSTGRES_DB: seedcode
       POSTGRES_USER: seedcode
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    # Sized for a small server shared with other sites.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=512MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - max_connections=40
     volumes:
       - db-data:/var/lib/postgresql/data
+    # Reached only by the app, over the network Docker makes for this file.
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 128m
+    mem_limit: 512m
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U seedcode -d seedcode"]
       interval: 5s
@@ -26,27 +62,39 @@ services:
       retries: 10
 
   # Runs once at every start: brings the database up to date and, the first
-  # time, makes the admin account.
+  # time, makes the admin account from ADMIN_USERNAME and ADMIN_PASSWORD.
+  # Those two can be removed from .env once the account exists.
   migrate:
     <<: *app
     command: ["python", "-m", "app.migrate"]
     restart: "no"
+    # The image "app" builds: built once, used by both.
+    pull_policy: never
+    mem_limit: 256m
     depends_on:
       db:
         condition: service_healthy
     environment:
       <<: *app-environment
-      ADMIN_USERNAME: ${ADMIN_USERNAME:?Set ADMIN_USERNAME in .env}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
 
   app:
     <<: *app
+    build:
+      context: .
+      args:
+        VITE_PUBLIC_URL: ${PUBLIC_URL:?Set PUBLIC_URL in .env, e.g. https://seeds.example.org}
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # Only this computer can reach the app directly; the world comes in
+    # through nginx, which adds HTTPS and is the one proxy the app trusts.
     ports:
-      - "${PORT:-8010}:8010"
+      - "${BIND:-127.0.0.1}:${PORT:-8010}:8010"
 
 volumes:
   db-data:

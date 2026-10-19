@@ -44,17 +44,35 @@ export function usePendingCount(): number {
   )
 }
 
-export async function postEntry(entry: FarmerEntry): Promise<boolean> {
+// What became of one try at sending an entry: taken, to be tried again
+// later (no signal, or the server is busy), or refused for good.
+export type Sent = 'sent' | 'later' | 'refused'
+
+// The server will never take an entry it answered with one of these, so
+// trying again is pointless, and keeping it would leave the farmer's details
+// (an ID number, perhaps) on a phone that may be shared.
+const REFUSED = [400, 404, 413, 422]
+
+export async function postEntry(entry: FarmerEntry): Promise<Sent> {
   try {
     const response = await fetch('/api/entries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
     })
-    return response.ok
+    if (response.ok) return 'sent'
+    return REFUSED.includes(response.status) ? 'refused' : 'later'
   } catch {
-    return false
+    return 'later'
   }
+}
+
+// Entries the server refused while this page was open, so the form can say
+// so instead of "Sent".
+const refused = new Set<string>()
+
+export function wasRefused(id: string): boolean {
+  return refused.has(id)
 }
 
 export async function queueEntry(entry: FarmerEntry) {
@@ -76,7 +94,9 @@ async function sendAll() {
     const database = await db()
     const entries = (await database.getAll('outbox')) as FarmerEntry[]
     for (const entry of entries) {
-      if (await postEntry(entry)) await database.delete('outbox', entry.id)
+      const result = await postEntry(entry)
+      if (result === 'refused') refused.add(entry.id)
+      if (result !== 'later') await database.delete('outbox', entry.id)
     }
   } catch {
     // Try again on the next trigger.

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -11,7 +12,9 @@ import {
 import EntryEditor from '../components/EntryEditor'
 import ImportEntries from '../components/ImportEntries'
 import PageHeader from '../components/PageHeader'
+import { PageSkeleton } from '../components/Skeleton'
 import { api, canEdit, currentToken, useApi } from '../data/api'
+import { toast } from '../data/toast'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { formatDate, formatDateTime } from '../data/types'
@@ -99,6 +102,7 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
     columns: widths,
     stickyRowsCount: 1,
   }).toFile('farmer-entries.xlsx')
+  toast(`Saved ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} to an Excel file`)
 }
 
 // Rows on one page of the table.
@@ -133,12 +137,18 @@ function exportMatching(filters: Filters) {
   document.body.append(form)
   form.submit()
   form.remove()
+  toast('Your download has started. A long list can take a minute.', 'info')
 }
 
 function Users() {
-  const [query, setQuery] = useState('')
+  // A search can arrive in the address, from the search box at the top
+  // (Ctrl+K), as /users?q=…
+  const [params] = useSearchParams()
+  const asked = params.get('q')
+  const [query, setQuery] = useState(() => asked ?? '')
   // What is searched for: the box's text, once typing has paused.
-  const [needle, setNeedle] = useState('')
+  const [needle, setNeedle] = useState(() => (asked ?? '').trim())
+  const searchBox = useRef<HTMLInputElement>(null)
   // Date range, as YYYY-MM-DD. Empty means no limit on that side.
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -157,7 +167,17 @@ function Users() {
   // The entry whose delete button was pressed and is waiting for a yes or no.
   const [confirmId, setConfirmId] = useState<string | null>(null)
   const [deleteFailure, setDeleteFailure] = useState('')
-  const [importing, setImporting] = useState(false)
+  const wantsImport = canEdit() && params.has('import')
+  const [importing, setImporting] = useState(wantsImport)
+
+  // Asked for again from the search box while this page is already open:
+  // noticed while drawing, so the page draws once more straight away.
+  const [lastAsked, setLastAsked] = useState({ q: asked, importing: wantsImport })
+  if (lastAsked.q !== asked || lastAsked.importing !== wantsImport) {
+    setLastAsked({ q: asked, importing: wantsImport })
+    if (asked !== null && asked !== lastAsked.q) setQuery(asked)
+    if (wantsImport && !lastAsked.importing) setImporting(true)
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -166,6 +186,18 @@ function Users() {
     }, 300)
     return () => clearTimeout(timer)
   }, [query])
+
+  // "/" jumps to the search box, as on many sites.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target as HTMLElement
+      if (event.key !== '/' || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+      event.preventDefault()
+      searchBox.current?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // The days are the ones on this computer's clock.
   const filters: Filters = {
@@ -176,7 +208,7 @@ function Users() {
   const search = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
   for (const [name, value] of Object.entries(filters)) if (value) search.set(name, value)
 
-  const { data, error, reload } = useApi<EntryPage>(`/entries?${search}`)
+  const { data, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
   const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
 
   const shown = data?.items ?? []
@@ -207,6 +239,7 @@ function Users() {
     try {
       await api(`/entries/${encodeURIComponent(id)}`, undefined, 'DELETE')
       setConfirmId(null)
+      toast('Entry deleted')
       reload()
     } catch (err) {
       setDeleteFailure((err as Error).message)
@@ -262,11 +295,16 @@ function Users() {
         {error ? (
           <p className="problem">{error}</p>
         ) : !data ? (
-          <p className="muted">Loading…</p>
+          <PageSkeleton />
         ) : (
-          <section className="card entries-card" ref={tableCard}>
+          <section
+            className={`card entries-card${loading || !fresh ? ' stale' : ''}`}
+            ref={tableCard}
+            aria-busy={loading || !fresh}
+          >
             <div className="card-head filters">
               <input
+                ref={searchBox}
                 className="search"
                 type="search"
                 aria-label="Search by name, phone, channel, crop or batch"
@@ -491,6 +529,7 @@ function Users() {
                               onCancel={() => setEditId(null)}
                               onSaved={() => {
                                 setEditId(null)
+                                toast('Entry corrected')
                                 reload()
                               }}
                             />

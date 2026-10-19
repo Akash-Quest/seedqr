@@ -1,0 +1,12 @@
+[Unit]
+Description=Save a copy of the SeedCode database every night
+
+[Timer]
+# 02:30 on the server's clock (UTC on EC2): 08:00 in India, before the
+# office starts.
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

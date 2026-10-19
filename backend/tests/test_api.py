@@ -9,8 +9,13 @@ from .conftest import LOT, sign_in
 
 
 def test_migrations_make_the_tables_the_models_describe():
+    def described(name, kind, _parent):
+        # PostgreSQL's search indexes (migration 0004) are not in the models.
+        return not (kind == "index" and (name or "").startswith("trgm_"))
+
     with engine.connect() as connection:
-        differences = compare_metadata(MigrationContext.configure(connection), Base.metadata)
+        context = MigrationContext.configure(connection, opts={"include_name": described})
+        differences = compare_metadata(context, Base.metadata)
     assert differences == []
 
 
@@ -495,6 +500,13 @@ def test_stats_with_nothing_yet(client, boss):
     assert got == {
         "series": [], "by": "crop", "first": None, "last": None, "channelCount": 0,
         "lotCount": 0, "previous": 0, "columns": [{}] * 7, "channels": [],
+        "kpis": {
+            "farmers": 0, "repeatFarmers": 0, "withId": 0, "withContact": 0,
+            "byOfficer": 0, "devices": 0,
+        },
+        "heatmap": [[0] * 24] * 7,
+        "lots": {"total": 0, "unused": 0, "waiting": []},
+        "latest": [],
     }
 
 

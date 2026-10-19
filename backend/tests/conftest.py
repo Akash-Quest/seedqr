@@ -17,6 +17,7 @@ os.environ["ADMIN_PASSWORD"] = "boss-password"
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import delete  # noqa: E402
 
+from app import cache, limits  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
 from app.migrate import upgrade  # noqa: E402
@@ -27,7 +28,8 @@ upgrade()
 
 @pytest.fixture(autouse=True)
 def empty_database():
-    """Every test starts with only the first admin, "boss"."""
+    """Every test starts with only the first admin, "boss", nothing kept
+    from an earlier test, and no address slowed down."""
     with SessionLocal() as db:
         db.execute(delete(AdminSession))
         db.execute(delete(FarmerEntry))
@@ -35,6 +37,9 @@ def empty_database():
         db.execute(delete(FormSettings))
         db.execute(delete(User).where(User.username != "boss"))
         db.commit()
+    cache.clear()
+    for limiter in limits.ALL:
+        limiter.forget()
 
 
 @pytest.fixture

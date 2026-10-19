@@ -7,16 +7,21 @@
 frontend/node_modules
 frontend/dist
 
-# Local Python leftovers, secrets and data.
+# Local Python leftovers, secrets and data. None of it belongs in an image,
+# or even in what is sent to Docker to build one.
 **/.venv
 **/__pycache__
 **/*.pyc
+**/.pytest_cache
 .env
 backend/.env
 backend/*.db
+backend/*.sql
+db_in_excel
 
 backend/tests
 .github
+deploy
 
 Dockerfile
 docker-compose.yml

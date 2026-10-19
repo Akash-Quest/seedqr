@@ -55,13 +55,17 @@ so the whole site is a single Docker image.
 | Address | Who | What |
 |---|---|---|
 | `/f/:lotId` | Farmers, no sign-in | Seed details and the farmer form. Works offline once loaded. |
-| `/` | Staff | Dashboard: entry counts, charts by crop and channel, latest entries. |
+| `/` | Staff | Dashboard: entry counts, insights worked out from them, charts by crop, channel and hour of the week, latest entries. Refreshes itself while "Live" is on. |
 | `/barcode` | Staff | Seed lots, QR labels, and (admins) the form questions. |
 | `/users` | Staff | Farmer entries: search, date filter, export, Excel import. |
 | `/staff` | Admins | Staff accounts and roles. |
 
 Note the naming: the **Users** page lists *farmers who submitted the form*.
 The people who sign in are on the **Staff** page.
+
+On any office page, **Ctrl+K** (⌘K on a Mac) opens a search box: go to a
+page, find a seed lot by crop, variety or batch, or search farmer entries.
+On the Users page, **/** jumps to its search box.
 
 ## Roles
 
@@ -96,6 +100,11 @@ The rules live in `backend/app/auth.py`.
 Changing someone's role, switching their account off, or resetting their
 password signs them out everywhere at once.
 
+Wrong passwords are limited: after 10 from one address for one username in
+15 minutes, that pair waits; one address trying many usernames, or many
+addresses trying one, are stopped a little later. The reply is **429**, and
+the sign-in page shows how long to wait.
+
 ## Folder map
 
 ```
@@ -104,6 +113,8 @@ backend/
     main.py        the API routes: lots, entries, forms, export, health
     auth.py        sign-in, roles, staff accounts
     stats.py       the dashboard's numbers, counted by the database
+    cache.py       answers kept in memory until the data they came from changes
+    limits.py      how often one address may try, and how much it may send
     forms.py       the questions on the two forms, which admins can change
     models.py      the database tables
     schemas.py     the JSON shapes sent and received
@@ -111,20 +122,23 @@ backend/
     config.py      settings read from backend/.env
     database.py    the database connection
   alembic/         the history of database changes ("migrations")
-  tests/           25 automated tests of the API
+  tests/           67 automated tests of the API, its limits and its numbers
   run.py           starts the backend for development
 
 frontend/src/
   pages/           one file per page: Dashboard, Barcode, Users, Staff,
                    SignIn, FarmerForm
   components/      charts, form inputs, layout, the Excel import
-  data/api.ts      every call to the backend goes through here
+  data/api.ts      every call to the backend goes through here; keeps answers
+                   so pages show at once, and asks again in the background
+  data/insights.ts the dashboard's insights, worked out from its numbers
   data/outbox.ts   keeps a farmer's entry on the phone until it is sent
   data/types.ts    TypeScript types matching the backend's JSON
   config.ts        app name, department name, sign-in picture
 
 Dockerfile             builds frontend + backend into one image
 docker-compose.yml     runs that image with a PostgreSQL database
+deploy/                nginx, backups and updates on the server (see its README)
 .github/workflows/     tests and builds on every push
 ```
 
@@ -144,13 +158,14 @@ Every address starts with `/api`. Every failure comes back as
 | `GET /entries?page=&size=&q=&from=&to=` | any staff | One page of entries, with the total |
 | `POST /entries/import` | editor, admin | Rows from an Excel file |
 | `POST /entries/export` | editor, admin | Every matching entry as a CSV file |
-| `GET /stats?start=&days=&size=` | any staff | The dashboard's counts |
+| `GET /stats?start=&days=&size=&tz=` | any staff | Everything on the dashboard, in one answer |
 | `GET /forms` | any staff | The questions on both forms |
 | `PUT /forms/{lot or farmer}` | admin | Change those questions |
 | `GET /staff`, `POST /staff`, `PUT /staff/{id}` | admin | Staff accounts |
 
-While the backend is running in development, `http://localhost:8010/api/docs`
-shows every route with a form to try it.
+With `DOCS=true` in `backend/.env`, `http://localhost:8010/api/docs` shows
+every route with a form to try it. It is off unless switched on, so a server
+on the internet does not describe itself to strangers.
 
 ## The data
 
@@ -173,7 +188,12 @@ workable:
 - **The entries list is paged.** The Users page asks for 1,000 rows at a
   time, and search and date filters run in the database.
 - **The dashboard asks for counts, not rows.** `GET /stats` returns a few
-  hundred numbers however many entries there are.
+  hundred numbers however many entries there are, and the server keeps that
+  answer until an entry or a lot changes. With 2 lakh entries it takes about
+  a second to work out, then a few milliseconds while it is kept.
+- **Searching does not read every entry.** On PostgreSQL, trigram indexes
+  find part of a name, phone number or channel directly (migration 0004);
+  the same seed lot is found by one indexed key, not by reading every lot.
 - **Export is streamed.** "Export all" downloads a CSV that the server writes
   row by row, so no one has to hold every entry in memory.
 
@@ -208,12 +228,14 @@ in `.env` it uses a SQLite file, which needs nothing installed.
 ### Docker (how it is meant to run on a server)
 
 ```sh
-copy .env.example .env          # fill in ADMIN_USERNAME, ADMIN_PASSWORD, POSTGRES_PASSWORD
+copy .env.example .env          # fill in PUBLIC_URL, POSTGRES_PASSWORD, ADMIN_USERNAME, ADMIN_PASSWORD
 docker compose up -d --build
 ```
 
 Open http://localhost:8010. This starts three things: a PostgreSQL database,
-a one-off step that updates the database, and the app.
+a one-off step that updates the database, and the app. The app listens on
+this computer only; on a server, nginx passes the world's requests on (see
+`deploy/README.md`, which also covers backups and updates).
 
 ### Tests
 
@@ -246,25 +268,20 @@ applied identically on every developer's machine and on the server.
 
 **Done and tested**
 
-- Staff accounts, three roles, hashed passwords.
-- Paged entries, server-side dashboard numbers, streamed export.
+- Staff accounts, three roles, hashed passwords, limits on guessing them.
+- Paged entries, server-side dashboard numbers kept until data changes,
+  streamed export.
 - Database migrations, tried on SQLite, PostgreSQL and MySQL.
-- 25 backend tests; a browser walk-through of every office page as an admin
-  and as a viewer.
+- 67 backend tests, run on SQLite and PostgreSQL.
+- Limits on how fast one address may use the public pages and how much it
+  may send; safety headers (a content security policy among them) on every
+  answer.
+- Running at https://seed.skyquestinsights.com in Docker behind nginx, with
+  nightly database backups and certificate renewal (see `deploy/README.md`).
 
-**Written but not yet run**
+**Still needed**
 
-- The Docker image and `docker-compose.yml` (Docker is not installed on the
-  development machine).
-- The CI workflow (the work has not been pushed yet).
-
-**Still needed before real use**
-
-- A server, a domain name and HTTPS. Phones need HTTPS for the offline
-  saving to work.
-- Scheduled database backups.
-- A way to deploy new versions to the server.
-- A limit on how fast one address may submit the public farmer form.
+- Backups copied off the server, and a bigger disk for it.
 - Error monitoring, so a failure is noticed before the office reports it.
 - Confirmation of the rules for storing Aadhaar and other ID numbers.
 

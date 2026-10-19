@@ -1,12 +1,75 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { Suspense, lazy, useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { APP_NAME, DEPARTMENT } from '../config'
-import { ROLE_NAMES, api, isAdmin, setToken, signedInRole, signedInUsername, useSignedIn } from '../data/api'
+import {
+  ROLE_NAMES,
+  api,
+  isAdmin,
+  prefetch,
+  setToken,
+  signedInRole,
+  signedInUsername,
+  useBusy,
+  useSignedIn,
+} from '../data/api'
+import { useOnline } from '../data/motion'
 import SignIn from '../pages/SignIn'
-import { DashboardIcon, Logo, QrIcon, SignOutIcon, StaffIcon, UsersIcon } from './Icons'
+import {
+  DashboardIcon,
+  Logo,
+  QrIcon,
+  SearchIcon,
+  SignOutIcon,
+  StaffIcon,
+  UsersIcon,
+  WifiOffIcon,
+} from './Icons'
+import { PageSkeleton } from './Skeleton'
+import Toaster from './Toaster'
+
+const CommandPalette = lazy(() => import('./CommandPalette'))
+
+// What each page will ask for first, so it can be fetched (code and data)
+// while the pointer is still on its link.
+const WARM_UP: Record<string, () => void> = {
+  '/': () => void import('../pages/Dashboard'),
+  '/barcode': () => {
+    void import('../pages/Barcode')
+    prefetch('/lots')
+    prefetch('/forms')
+  },
+  '/users': () => {
+    void import('../pages/Users')
+    prefetch('/entries?page=1&size=100')
+    prefetch('/forms')
+  },
+  '/staff': () => {
+    void import('../pages/Staff')
+    prefetch('/staff')
+  },
+}
+
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform)
 
 function AdminLayout() {
   const signedIn = useSignedIn()
   const role = signedInRole()
+  const busy = useBusy()
+  const online = useOnline()
+  const location = useLocation()
+  const [palette, setPalette] = useState(false)
+
+  // Ctrl+K (⌘K on a Mac) opens the search box from anywhere.
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setPalette((open) => !open)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   function signOut() {
     api('/logout', {}).catch(() => {})
@@ -15,11 +78,18 @@ function AdminLayout() {
 
   if (!signedIn) return <SignIn />
 
+  const link = (to: string) => ({
+    to,
+    onPointerEnter: WARM_UP[to],
+    onFocus: WARM_UP[to],
+  })
+
   return (
     <div className="app">
       <a className="skip-link" href="#main">
         Skip to main content
       </a>
+      <div className={busy ? 'progress on' : 'progress'} aria-hidden="true" />
 
       <aside className="sidebar">
         <div className="brand">
@@ -30,21 +100,27 @@ function AdminLayout() {
           </span>
         </div>
 
+        <button type="button" className="search-button" onClick={() => setPalette(true)}>
+          <SearchIcon />
+          <span>Search</span>
+          <kbd>{MAC ? '⌘K' : 'Ctrl K'}</kbd>
+        </button>
+
         <nav className="sidenav" aria-label="Main">
-          <NavLink to="/" end>
+          <NavLink {...link('/')} end>
             <DashboardIcon />
             Dashboard
           </NavLink>
-          <NavLink to="/barcode">
+          <NavLink {...link('/barcode')}>
             <QrIcon />
             Barcode
           </NavLink>
-          <NavLink to="/users">
+          <NavLink {...link('/users')}>
             <UsersIcon />
             Farmers
           </NavLink>
           {isAdmin() && (
-            <NavLink to="/staff">
+            <NavLink {...link('/staff')}>
               <StaffIcon />
               Users
             </NavLink>
@@ -61,6 +137,15 @@ function AdminLayout() {
           </span>
           <button
             type="button"
+            className="icon-button search-icon"
+            onClick={() => setPalette(true)}
+            aria-label="Search"
+            title="Search"
+          >
+            <SearchIcon />
+          </button>
+          <button
+            type="button"
             className="icon-button"
             onClick={signOut}
             aria-label="Sign out"
@@ -72,8 +157,27 @@ function AdminLayout() {
       </aside>
 
       <main id="main" className="main">
-        <Outlet />
+        {!online && (
+          <p className="offline" role="status">
+            <WifiOffIcon />
+            No internet connection. What is on screen may be out of date; it will
+            refresh when the connection is back.
+          </p>
+        )}
+        {/* Each page slides in as it opens. */}
+        <div className="page-enter" key={location.pathname}>
+          <Suspense fallback={<PageSkeleton />}>
+            <Outlet />
+          </Suspense>
+        </div>
       </main>
+
+      {palette && (
+        <Suspense fallback={null}>
+          <CommandPalette onClose={() => setPalette(false)} />
+        </Suspense>
+      )}
+      <Toaster />
     </div>
   )
 }

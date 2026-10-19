@@ -24,11 +24,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     .then(async () => {
       // Save the files this page has already loaded, so that a refresh
       // without signal still shows the form.
+      // Only the built files, as public/sw.js keeps; its cache name too.
       const files = performance
         .getEntriesByType('resource')
         .map((entry) => entry.name)
-        .filter((url) => url.startsWith(location.origin) && !url.includes('/api/'))
-      const cache = await caches.open('seedcode-v1')
+        .filter((url) => url.startsWith(`${location.origin}/assets/`))
+      const cache = await caches.open('seedcode-v2')
       await cache.addAll(files)
     })
     .catch(() => {})

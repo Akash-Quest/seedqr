@@ -10,17 +10,16 @@ Farmers never sign in: the pages a QR code opens are public.
 
 import hashlib
 import secrets
-import time
 from datetime import timedelta
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from . import schemas
+from . import limits, schemas
 from .config import settings
 from .database import get_db
 from .models import AdminSession, User, utc_now
@@ -48,11 +47,22 @@ def bearer(authorization: str) -> str:
 
 
 def user_for_token(token: str, db: Session) -> User:
-    session = db.get(AdminSession, token_key(token)) if token else None
-    if session is None or session.expires_at < utc_now():
-        raise HTTPException(401, "Please sign in again.")
-    user = db.get(User, session.user_id)
-    if user is None or not user.active:
+    # One question to the database for every signed-in request: the
+    # sign-in, its account, and whether both are still good.
+    user = (
+        db.scalar(
+            select(User)
+            .join(AdminSession, AdminSession.user_id == User.id)
+            .where(
+                AdminSession.token == token_key(token),
+                AdminSession.expires_at >= utc_now(),
+                User.active.is_(True),
+            )
+        )
+        if token
+        else None
+    )
+    if user is None:
         raise HTTPException(401, "Please sign in again.")
     return user
 
@@ -97,13 +107,33 @@ router = APIRouter(prefix="/api")
 
 
 @router.post("/login", response_model=schemas.Token)
-def login(body: schemas.Login, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.username == body.username.lower()))
+def login(body: schemas.Login, request: Request, db: Session = Depends(get_db)):
+    username = body.username.lower()
+    address = limits.client_address(request)
+    pair = f"{address}\n{username}"
+    # Guessing is limited per address and username together, per address,
+    # and per username, so neither one address nor many can keep trying.
+    counted = (
+        (limits.login_by_pair, pair),
+        (limits.login_by_address, address),
+        (limits.login_by_username, username),
+    )
+    # Someone signing in from where they signed in before is held up only by
+    # their own mistakes, not by strangers trying the same username.
+    checked = counted[:1] if limits.signed_in_from.has(pair) else counted
+    wait = max(limiter.wait(key) for limiter, key in checked)
+    if wait:
+        raise limits.too_many(wait)
+
+    user = db.scalar(select(User).where(User.username == username))
     # A hash is always checked, so the reply does not reveal which was wrong.
     ok = password_matches(user.password_hash if user else NO_USER_HASH, body.password)
     if not (user and user.active and ok):
-        time.sleep(0.6)  # slow down guessing
+        for limiter, key in counted:
+            limiter.hit(key)
         raise HTTPException(403, "That username or password is not correct.")
+    limits.login_by_pair.forget(pair)
+    limits.signed_in_from.add(pair)
 
     db.execute(delete(AdminSession).where(AdminSession.expires_at < utc_now()))
     token = secrets.token_hex(32)
@@ -131,11 +161,19 @@ def logout(authorization: str = Header(default=""), db: Session = Depends(get_db
 
 
 def other_admins(user: User, db: Session) -> int:
-    return db.scalar(
-        select(func.count(User.id)).where(
-            User.role == "admin", User.active.is_(True), User.id != user.id
-        )
-    )
+    """Active admins besides this one.
+
+    Every active admin's row stays locked until the change is saved, always
+    taken in the same order. Two admins removing each other at the same
+    moment then go one after the other, and the second sees the first's
+    change, so they cannot both succeed and leave no admin."""
+    admins = db.scalars(
+        select(User.id)
+        .where(User.role == "admin", User.active.is_(True))
+        .order_by(User.id)
+        .with_for_update()
+    ).all()
+    return sum(1 for admin_id in admins if admin_id != user.id)
 
 
 @router.get(

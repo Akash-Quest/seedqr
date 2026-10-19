@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import Field from '../components/Field'
 import PageHeader from '../components/PageHeader'
+import { PageSkeleton } from '../components/Skeleton'
 import { ROLE_NAMES, api, signedInUsername, useApi } from '../data/api'
 import type { Role } from '../data/api'
+import { toast } from '../data/toast'
 import { formatDate } from '../data/types'
 import type { StaffAccount } from '../data/types'
 
@@ -28,7 +30,7 @@ function Staff() {
         {error ? (
           <p className="problem">{error}</p>
         ) : !data ? (
-          <p className="muted">Loading…</p>
+          <PageSkeleton />
         ) : (
           <>
             <NewAccount onAdded={reload} />
@@ -141,6 +143,7 @@ function NewAccount({ onAdded }: { onAdded: () => void }) {
     setFailure('')
     try {
       await api('/staff', { username: username.trim(), password, role })
+      toast(`Account “${username.trim().toLowerCase()}” added as ${ROLE_NAMES[role].toLowerCase()}`)
       setUsername('')
       setPassword('')
       setRole('viewer')
@@ -241,6 +244,11 @@ function AccountRow({ account, onlyAdmin, onChanged }: AccountRowProps) {
         'PUT',
       )
       setPassword(null)
+      toast(
+        patch.password
+          ? `New password set for ${account.username}. They are signed out everywhere.`
+          : `${account.username} updated`,
+      )
       onChanged()
     } catch (err) {
       setFailure((err as Error).message)
@@ -251,6 +259,7 @@ function AccountRow({ account, onlyAdmin, onChanged }: AccountRowProps) {
     setFailure('')
     try {
       await api(`/staff/${account.id}`, undefined, 'DELETE')
+      toast(`Account ${account.username} deleted`)
       onChanged()
     } catch (err) {
       setConfirming(false)

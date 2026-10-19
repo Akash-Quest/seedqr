@@ -1,0 +1,10 @@
+[Unit]
+Description=Renew the HTTPS certificate of seed.skyquestinsights.com when due
+After=network-online.target nginx.service
+
+[Service]
+Type=oneshot
+# Only this site's certificate: the other sites on the server renew theirs
+# their own way. Does nothing until the certificate is within 30 days of
+# expiring; nginx is reloaded only after a renewal.
+ExecStart=/usr/bin/certbot renew --cert-name seed.skyquestinsights.com --quiet --deploy-hook "systemctl reload nginx"

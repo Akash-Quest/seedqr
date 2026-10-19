@@ -1,5 +1,3 @@
-import FingerprintJS from '@fingerprintjs/fingerprintjs'
-
 // crypto.randomUUID is missing on plain http pages, so fall back.
 export function newId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
@@ -119,6 +117,8 @@ async function collect(): Promise<DeviceInfo> {
 
   let fingerprint = ''
   try {
+    // Loaded only here, so the form itself shows sooner on a slow phone.
+    const { default: FingerprintJS } = await import('@fingerprintjs/fingerprintjs')
     const agent = await FingerprintJS.load({ monitoring: false })
     const result = await agent.get()
     fingerprint = result.visitorId
