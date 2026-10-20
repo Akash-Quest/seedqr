@@ -91,6 +91,9 @@ export type Stats = {
   channelCount: number
   // How many seed lots had an entry in the period.
   lotCount: number
+  // When split by crop: each crop's varieties and their entries, largest
+  // first. Empty when the series are varieties already.
+  varieties: Record<string, Record<string, number>>
   // Entries in the period of the same length just before this one.
   previous: number
   // One per day or week.
@@ -107,8 +110,6 @@ export type Stats = {
     // Different phones the entries were sent from.
     devices: number
   }
-  // Entries by day of the week (Sunday first) and hour, on the office's clock.
-  heatmap: number[][]
   // Seed lots in use now, whatever the period.
   lots: {
     total: number
@@ -126,6 +127,27 @@ export type Stats = {
     channel: string
     receivedAt: string
   }[]
+}
+
+// One run of a crop season, such as Rabi from 15 Oct 2025 to 10 Jan 2026.
+// The dates are set on the server (backend/app/seasons.py).
+export type Season = {
+  season: string
+  // "Rabi 2025–26", "Kharif 2026".
+  label: string
+  // First and last day, as "2025-10-15"; both count.
+  start: string
+  end: string
+  entries: number
+}
+
+// Every distribution channel, busiest first.
+export type ChannelList = {
+  // Every crop that has had an entry, oldest first, for the colours.
+  series: string[]
+  // Entries in the period, over all channels.
+  total: number
+  channels: { name: string; counts: CropCounts }[]
 }
 
 // Someone in the office who can sign in.

@@ -15,6 +15,7 @@ import {
 import { useOnline } from '../data/motion'
 import SignIn from '../pages/SignIn'
 import {
+  ChannelIcon,
   DashboardIcon,
   Logo,
   QrIcon,
@@ -42,6 +43,10 @@ const WARM_UP: Record<string, () => void> = {
     void import('../pages/Users')
     prefetch('/entries?page=1&size=100')
     prefetch('/forms')
+  },
+  '/channels': () => {
+    void import('../pages/Channels')
+    prefetch('/channels')
   },
   '/staff': () => {
     void import('../pages/Staff')
@@ -118,6 +123,10 @@ function AdminLayout() {
           <NavLink {...link('/users')}>
             <UsersIcon />
             Farmers
+          </NavLink>
+          <NavLink {...link('/channels')}>
+            <ChannelIcon />
+            Channels
           </NavLink>
           {isAdmin() && (
             <NavLink {...link('/staff')}>

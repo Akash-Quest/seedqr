@@ -24,7 +24,11 @@
   --radius-small: 7px;
   --shadow: 0 1px 2px rgb(19 26 39 / 0.05), 0 4px 14px rgb(19 26 39 / 0.04);
 
-  font-family: 'Public Sans Variable', system-ui, 'Segoe UI', Roboto, sans-serif;
+  /* Hindi letters are not in Public Sans: they come from the phone's own
+     Devanagari font (Noto on Android, Nirmala UI on Windows). */
+  font-family:
+    'Public Sans Variable', system-ui, 'Segoe UI', Roboto, 'Noto Sans Devanagari',
+    'Nirmala UI', sans-serif;
   font-size: 15px;
   line-height: 1.5;
   color: var(--ink);
@@ -1199,6 +1203,256 @@ a.stat.solid:hover .stat-label {
   overflow-wrap: anywhere;
 }
 
+/* The period buttons, and the list of a season's years under them. */
+.period-controls {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 0.75rem;
+}
+
+/* A season's button: its name, the years shown, and a small arrow. */
+.range button.season-button {
+  gap: 0.35rem;
+}
+
+.season-year {
+  font-size: 0.82rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* The arrow in a small square button of its own, right of the name. */
+.season-caret {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.15rem;
+  border-radius: 4px;
+  background: var(--paper);
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.season-button:hover .season-caret {
+  background: #fff;
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+/* On the chosen season, the circle takes its blue. */
+.season-button.on .season-caret,
+.season-button[aria-expanded='true'] .season-caret {
+  background: #fff;
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.season-caret svg {
+  width: 0.7rem;
+  height: 0.7rem;
+  stroke-width: 2.5;
+  transform: rotate(90deg);
+  transition: transform 0.15s;
+}
+
+.season-button[aria-expanded='true'] .season-caret svg {
+  transform: rotate(-90deg);
+}
+
+/* The season's years, opened under its button. */
+.season-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 13rem;
+  padding: 0.3rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  box-shadow: 0 10px 28px rgb(19 26 39 / 0.16);
+  animation: rise 0.15s ease-out;
+}
+
+/* Stronger than "button" and "button:hover", which would paint them blue. */
+.season-menu button,
+.season-menu button:hover {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  min-height: 0;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font-weight: 500;
+  text-align: left;
+}
+
+.season-menu button:hover {
+  background: var(--paper);
+}
+
+.season-menu button.on {
+  background: var(--brand-tint);
+  color: var(--brand-dark);
+  font-weight: 600;
+}
+
+.season-menu small {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+/* The Channels page: every channel, busiest first. */
+.channel-legend {
+  padding: 0.25rem 1.4rem 0.75rem;
+  margin: 0;
+}
+
+.channel-table td {
+  vertical-align: middle;
+}
+
+.channel-table .num {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The rank in a small round badge, as on the dashboard. */
+.channel-table .bar-rank {
+  display: inline-grid;
+  /* Widens into a pill for ranks of three digits. */
+  width: auto;
+  min-width: 1.6rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+}
+
+/* The name on up to two lines, with the crop bar under it. Table cells
+   otherwise keep to one line, and long names ran over the next columns. */
+.channel-table td.channel-cell {
+  width: 100%;
+  min-width: 14rem;
+  white-space: normal;
+}
+
+.channel-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+a.channel-name:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.channel-table .bar-track {
+  display: block;
+  max-width: 34rem;
+  margin-top: 0.45rem;
+}
+
+/* A crop's name that lists its varieties while pointed at. */
+.legend li.has-tip {
+  position: relative;
+  cursor: default;
+}
+
+/* Opens upwards, over the ring or the chart: a card cuts off whatever
+   reaches past its edge, and the last names sit at the bottom of theirs. */
+.variety-tip {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  display: none;
+  min-width: 12rem;
+  max-width: 18rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: #fff;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+}
+
+/* The last names in the chart's legend are near the card's right edge:
+   their box lines up with their right end instead. */
+.legend.below li:nth-last-child(-n + 2) .variety-tip {
+  left: auto;
+  right: 0;
+}
+
+.legend li.has-tip:hover .variety-tip,
+.legend li.has-tip:focus-visible .variety-tip {
+  display: block;
+}
+
+.variety-tip-title,
+.variety-tip-more {
+  display: block;
+  opacity: 0.75;
+}
+
+.variety-tip-title {
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgb(255 255 255 / 0.2);
+}
+
+.variety-tip-more {
+  margin-top: 0.25rem;
+}
+
+.variety-tip .variety-tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.variety-tip-row span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.variety-tip-row strong {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The share of the crop, lighter, in a column of its own. */
+.variety-tip-row em {
+  width: 2.6rem;
+  margin-left: -0.4rem;
+  font-style: normal;
+  text-align: right;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
 /* "Other", which opens to list what it is made of. */
 /* Plain text with an arrow, not a button: stronger than "button" and
    "button:hover", which would paint it blue. */
@@ -1289,6 +1543,12 @@ a.stat.solid:hover .stat-label {
 
 .split.wide {
   grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* Two cards side by side that end level, the shorter one with room to
+   spare at the bottom. */
+.split.even {
   align-items: stretch;
 }
 
@@ -1898,6 +2158,39 @@ details[open] summary {
   margin-top: 0.25rem;
 }
 
+/* हिन्दी / English, at the top right of the farmer's form. */
+.lang-switch {
+  display: flex;
+  width: fit-content;
+  margin-left: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.lang-switch button,
+.lang-switch button:hover {
+  min-height: 0;
+  padding: 0.35rem 0.95rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.lang-switch button:hover {
+  color: var(--ink);
+}
+
+.lang-switch button.on {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+
 /* ---- Sign-in: what the app does on the left, the form on the right ---- */
 
 .signin {
@@ -2196,13 +2489,6 @@ details[open] summary {
   }
 }
 
-@keyframes pop {
-  from {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-}
-
 @keyframes pulse {
   0% {
     box-shadow: 0 0 0 0 rgb(35 104 63 / 0.5);
@@ -2472,6 +2758,74 @@ button.search-button:hover {
   display: none;
 }
 
+/* A window over the page, such as editing a farmer entry. Its heading and
+   buttons stay in place while a long form scrolls between them. */
+dialog.modal {
+  width: min(46rem, calc(100vw - 2rem));
+  max-width: none;
+  max-height: calc(100dvh - 3rem);
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 24px 60px rgb(19 26 39 / 0.3);
+  overflow: hidden;
+  animation: rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+dialog.modal::backdrop {
+  background: rgb(19 26 39 / 0.45);
+  backdrop-filter: blur(2px);
+  animation: fade 0.2s;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 3rem);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.4rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-head h2 {
+  font-size: 1.15rem;
+}
+
+.modal-head p {
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
+}
+
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.2rem 1.4rem;
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 0.9rem 1.4rem;
+  border-top: 1px solid var(--line);
+  background: #f8f9fb;
+}
+
+.modal-foot .error {
+  margin-right: auto;
+}
+
 dialog.palette {
   width: min(40rem, calc(100vw - 2rem));
   max-width: none;
@@ -2721,11 +3075,6 @@ button.live-toggle.on {
   animation: spin 0.8s linear infinite;
 }
 
-/* A fourth tile colour, as dark as the others under white text. */
-.stat.plum {
-  --tile: #5b3a8c;
-}
-
 /* Drawn from left to right as the tile arrives. */
 .sparkline {
   display: block;
@@ -2748,219 +3097,6 @@ button.live-toggle.on {
   stroke-linecap: round;
   /* The same 2px however wide the tile stretches the drawing. */
   vector-effect: non-scaling-stroke;
-}
-
-h2.with-icon {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-}
-
-h2.with-icon .icon {
-  color: var(--accent);
-}
-
-.insight-list {
-  list-style: none;
-  margin: 0;
-  padding: 0.2rem 1.4rem 1.1rem;
-}
-
-.insight {
-  display: flex;
-  gap: 0.85rem;
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--line);
-  animation: rise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
-}
-
-.insight:first-child {
-  border-top: 0;
-  padding-top: 0.2rem;
-}
-
-.insight strong {
-  display: block;
-  font-weight: 650;
-}
-
-.insight p {
-  margin-top: 0.1rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-/* Each kind wears its own icon as well as its colour. */
-.insight-icon {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--brand-tint);
-  color: var(--brand);
-}
-
-.insight-icon .icon {
-  width: 1.05rem;
-  height: 1.05rem;
-}
-
-.insight.up .insight-icon {
-  background: var(--ok-bg);
-  color: var(--ok);
-}
-
-.insight.down .insight-icon {
-  background: var(--red-bg);
-  color: var(--red);
-}
-
-.insight.warn .insight-icon {
-  background: var(--warn-bg);
-  color: #8a5300;
-}
-
-.card-body.meters {
-  display: grid;
-  gap: 1.15rem;
-}
-
-.card-body.meters > * + * {
-  margin-top: 0;
-}
-
-.meter-label {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.92rem;
-}
-
-/* The unfilled part is a lighter step of the same blue. */
-.meter-track {
-  display: block;
-  height: 8px;
-  margin-top: 0.35rem;
-  border-radius: 4px;
-  background: var(--brand-tint);
-  overflow: hidden;
-}
-
-.meter-track > span {
-  display: block;
-  height: 100%;
-  border-radius: 4px;
-  background: var(--chart);
-  transform-origin: left;
-  animation: grow-across 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
-  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.meter-note {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.meter-foot {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--line);
-  font-size: 0.88rem;
-  color: var(--muted);
-}
-
-.meter-foot .icon {
-  width: 1.1rem;
-  height: 1.1rem;
-}
-
-/* ---- When entries come in: day by hour ---- */
-
-.heatmap-bar {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  flex-wrap: wrap;
-}
-
-.heatmap-readout {
-  font-size: 0.92rem;
-  min-height: 1.4em;
-}
-
-.heatmap-grid {
-  display: grid;
-  gap: 3px;
-}
-
-.heatmap-row {
-  display: grid;
-  grid-template-columns: 2.6rem repeat(24, minmax(0, 1fr));
-  gap: 3px;
-  align-items: center;
-}
-
-.heatmap-day {
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-/* An hour with no entries is a step off the card, not white. */
-.heatmap-cell {
-  height: 1.4rem;
-  border-radius: 3px;
-  background: #eef1f6;
-  animation: pop 0.35s ease-out backwards;
-  transition:
-    transform 0.12s,
-    box-shadow 0.12s;
-}
-
-.heatmap-cell.on {
-  position: relative;
-  z-index: 1;
-  transform: scale(1.3);
-  box-shadow:
-    0 0 0 2px var(--card),
-    0 0 0 3px var(--ink);
-}
-
-.heatmap-hours span {
-  font-size: 0.72rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.heatmap-scale {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 0.9rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.heatmap-scale i {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-}
-
-.heatmap-scale i.none {
-  margin-left: 4px;
-  background: #eef1f6;
-}
-
-.heatmap-scale span:last-child {
-  margin-left: 4px;
 }
 
 /* ---- Seed lots list: find and order ---- */
@@ -3264,26 +3400,18 @@ h2.with-icon .icon {
 
   /* Five periods do not fit across a phone: the row scrolls instead of
      widening the page. */
-  .filters-row > .range {
+  .period-controls {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .period-controls > .range {
     max-width: 100%;
     overflow-x: auto;
   }
 
   .card-head-end {
     flex-wrap: wrap;
-  }
-
-  .heatmap-row {
-    grid-template-columns: 2rem repeat(24, minmax(0, 1fr));
-    gap: 2px;
-  }
-
-  .heatmap-grid {
-    gap: 2px;
-  }
-
-  .heatmap-cell {
-    height: 0.95rem;
   }
 
   .chart-ticks {

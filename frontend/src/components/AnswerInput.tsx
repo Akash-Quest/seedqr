@@ -4,10 +4,12 @@ type AnswerInputProps = {
   field: FieldSpec
   value: string
   onChange: (value: string) => void
+  // The list's first line, for a form in another language.
+  choose?: string
 }
 
 // The input for a plain question: short or long text, number, date or a list.
-function AnswerInput({ field, value, onChange }: AnswerInputProps) {
+function AnswerInput({ field, value, onChange, choose = 'Choose…' }: AnswerInputProps) {
   if (field.type === 'textarea') {
     return (
       <textarea
@@ -21,7 +23,7 @@ function AnswerInput({ field, value, onChange }: AnswerInputProps) {
   if (field.type === 'select') {
     return (
       <select id={field.key} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Choose…</option>
+        <option value="">{choose}</option>
         {field.options.map((option) => (
           <option key={option}>{option}</option>
         ))}

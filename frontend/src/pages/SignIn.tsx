@@ -8,7 +8,7 @@ import { api, rememberUser, setToken } from '../data/api'
 import type { Role } from '../data/api'
 
 const STEPS = [
-  ['Add a seed lot', 'Enter the seed details once and print the QR label for its bags.'],
+  ['Add a seed variety', 'Enter the seed details once and print the QR label for its bags.'],
   ['The farmer scans the bag', 'Their phone shows the seed details and a short form. No app to install.'],
   ['The entry reaches this office', 'Even if the signal drops, it is kept on the phone and sent later.'],
 ]

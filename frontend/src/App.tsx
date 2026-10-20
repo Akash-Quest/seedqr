@@ -10,6 +10,7 @@ import FarmerForm from './pages/FarmerForm'
 // signal then never downloads them.
 const AdminLayout = lazy(() => import('./components/AdminLayout'))
 const Barcode = lazy(() => import('./pages/Barcode'))
+const Channels = lazy(() => import('./pages/Channels'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Staff = lazy(() => import('./pages/Staff'))
 const Users = lazy(() => import('./pages/Users'))
@@ -26,6 +27,7 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="users" element={<Users />} />
             <Route path="barcode" element={<Barcode />} />
+            <Route path="channels" element={<Channels />} />
             <Route path="staff" element={<Staff />} />
             <Route
               path="*"

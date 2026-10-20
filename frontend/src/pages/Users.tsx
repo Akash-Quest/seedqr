@@ -17,6 +17,7 @@ import { api, canEdit, currentToken, useApi } from '../data/api'
 import { toast } from '../data/toast'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
+import { tidyQuantity, titleCase } from '../data/text'
 import { formatDate, formatDateTime } from '../data/types'
 import type { EntryPage, ReceivedEntry } from '../data/types'
 
@@ -210,6 +211,7 @@ function Users() {
 
   const { data, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
   const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
+  const editing = editId ? data?.items.find((e) => e.id === editId) : undefined
 
   const shown = data?.items ?? []
   const total = data?.total ?? 0
@@ -442,8 +444,11 @@ function Users() {
                             onChange={() => toggle(e.id)}
                           />
                         </td>
+                        {/* Names, crops, quantities and channels are shown with
+                            capital first letters however they were typed; the
+                            Excel file has them as typed. */}
                         <td>
-                          <strong>{e.farmerName}</strong>
+                          <strong>{titleCase(e.farmerName)}</strong>
                         </td>
                         <td>{formatDate(e.date ?? '')}</td>
                         <td className="mono">{e.contact}</td>
@@ -453,12 +458,13 @@ function Users() {
                             <span className="mono"> {shortened(e.idNumber)}</span>
                           )}
                         </td>
-                        <td>{e.lot ? `${e.lot.crop}, ${e.lot.variety}` : ''}</td>
+                        {/* Varieties hold codes ("DBW-187"), so stay as typed. */}
+                        <td>{e.lot ? `${titleCase(e.lot.crop)}, ${e.lot.variety}` : ''}</td>
                         <td className="mono">{e.lot?.batchNo}</td>
-                        <td>{e.quantity}</td>
-                        <td>{e.landholding}</td>
+                        <td>{tidyQuantity(e.quantity)}</td>
+                        <td>{tidyQuantity(e.landholding)}</td>
                         <td className="clip" title={e.channel}>
-                          {e.channel}
+                          {titleCase(e.channel)}
                         </td>
                         <td>{e.filledBy}</td>
                         <td>{formatDateTime(e.receivedAt)}</td>
@@ -520,22 +526,6 @@ function Users() {
                           </td>
                         )}
                       </tr>
-                      {editId === e.id && (
-                        <tr className="detail-row">
-                          <td colSpan={13}>
-                            <EntryEditor
-                              entry={e}
-                              fields={forms.farmer}
-                              onCancel={() => setEditId(null)}
-                              onSaved={() => {
-                                setEditId(null)
-                                toast('Entry corrected')
-                                reload()
-                              }}
-                            />
-                          </td>
-                        </tr>
-                      )}
                       {openId === e.id && (
                         <tr className="detail-row">
                           <td colSpan={13}>
@@ -555,6 +545,21 @@ function Users() {
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {/* The entry being edited, in a window over the page. */}
+            {editing && (
+              <EntryEditor
+                key={editing.id}
+                entry={editing}
+                fields={forms.farmer}
+                onCancel={() => setEditId(null)}
+                onSaved={() => {
+                  setEditId(null)
+                  toast('Entry corrected')
+                  reload()
+                }}
+              />
             )}
 
             {pages > 1 && (

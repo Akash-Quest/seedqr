@@ -454,6 +454,110 @@ def test_stats_count_by_day_crop_and_channel(client, boss, lot, entry):
     ]
 
 
+def test_seasons_have_the_offices_dates():
+    from app.seasons import occurrences
+
+    # Every season of every crop year asked for, newest first. A crop year
+    # begins with Kharif; its Garma is in the next calendar year.
+    found = occurrences(2025, 2026)
+    assert [(label, begin, finish) for _, label, begin, finish in found] == [
+        ("Garma 2026–27", dt.date(2027, 2, 10), dt.date(2027, 5, 12)),
+        ("Rabi 2026–27", dt.date(2026, 10, 15), dt.date(2027, 1, 10)),
+        ("Kharif 2026–27", dt.date(2026, 5, 13), dt.date(2026, 8, 10)),
+        ("Garma 2025–26", dt.date(2026, 2, 10), dt.date(2026, 5, 12)),
+        ("Rabi 2025–26", dt.date(2025, 10, 15), dt.date(2026, 1, 10)),
+        ("Kharif 2025–26", dt.date(2025, 5, 13), dt.date(2025, 8, 10)),
+    ]
+
+
+def test_seasons_count_their_entries_on_the_offices_clock(client, boss, lot, entry):
+    lot_id = lot()
+    utc = dt.datetime
+    entry(lot_id, received_at=utc(2025, 10, 14, 18, 29))  # 14 Oct, 23:59 in India
+    entry(lot_id, received_at=utc(2025, 10, 14, 18, 30))  # 15 Oct, Rabi begins
+    entry(lot_id, received_at=utc(2026, 1, 10, 18, 29))  # 10 Jan, 23:59: still Rabi
+    entry(lot_id, received_at=utc(2026, 1, 10, 18, 30))  # 11 Jan: no season
+    entry(lot_id, received_at=utc(2026, 5, 12, 12, 0))  # Garma's last day
+    entry(lot_id, received_at=utc(2026, 5, 13, 12, 0))  # Kharif's first
+
+    got = client.get("/api/seasons", params={"tz": 330}, headers=boss).json()
+    by_label = {season["label"]: season for season in got}
+    assert by_label["Rabi 2025–26"] == {
+        "season": "Rabi", "label": "Rabi 2025–26", "start": "2025-10-15", "end": "2026-01-10",
+        "entries": 2,
+    }
+    assert by_label["Garma 2025–26"]["entries"] == 1
+    assert by_label["Kharif 2026–27"]["entries"] == 1
+    # Newest first, and every season of every crop year listed, entries or not.
+    assert [season["start"] for season in got] == sorted((s["start"] for s in got), reverse=True)
+    assert by_label["Kharif 2025–26"]["entries"] == 0
+    assert "Rabi 2024–25" not in by_label
+    assert "Garma 2024–25" not in by_label
+
+    assert client.get("/api/seasons").status_code == 401
+
+
+def test_a_season_counts_its_days_in_every_year(client, boss, lot, entry):
+    lot_id = lot()
+    utc = dt.datetime
+    entry(lot_id, received_at=utc(2024, 6, 1, 12), channel="Depot")  # Kharif 2024
+    entry(lot_id, received_at=utc(2025, 8, 10, 18, 29), channel="Shop")  # 10 Aug, 23:59 in India
+    entry(lot_id, received_at=utc(2025, 8, 10, 18, 30), channel="Shop")  # 11 Aug: no season
+    entry(lot_id, received_at=utc(2025, 12, 31, 12), channel="Depot")  # Rabi, before the new year
+    entry(lot_id, received_at=utc(2026, 1, 5, 12), channel="Depot")  # Rabi, after it
+    entry(lot_id, received_at=utc(2026, 3, 1, 12), channel="Depot")  # Garma
+
+    def total(season):
+        params = {
+            "start": "2024-01-01T00:00:00Z", "days": 1000, "size": 30, "tz": 330, "season": season,
+        }
+        got = client.get("/api/stats", params=params, headers=boss).json()
+        return sum(n for column in got["columns"] for n in column.values())
+
+    assert total("Kharif") == 2
+    assert total("rabi") == 2
+    assert total("Garma") == 1
+
+    channels = client.get(
+        "/api/channels", params={"season": "Kharif", "tz": 330}, headers=boss
+    ).json()
+    assert [(c["name"], sum(c["counts"].values())) for c in channels["channels"]] == [
+        ("Depot", 1), ("Shop", 1),
+    ]
+
+    params = {"start": "2024-01-01T00:00:00Z", "days": 7, "season": "Monsoon"}
+    assert client.get("/api/stats", params=params, headers=boss).status_code == 400
+
+
+def test_every_channel_is_listed_busiest_first(client, boss, staff, lot, entry):
+    wheat, rice = lot(crop="WHEAT"), lot(crop="Rice")
+    start = dt.datetime(2026, 6, 10)
+    # Wheat first, so it is first in the series (the same time would tie).
+    entry(wheat, received_at=start, channel="Shop")
+    entry(rice, received_at=start + dt.timedelta(hours=1), channel="Depot")
+    entry(wheat, received_at=start + dt.timedelta(days=1), channel="Depot")
+    entry(rice, received_at=start + dt.timedelta(days=2), channel=" Depot ")
+    entry(rice, received_at=start + dt.timedelta(days=5), channel="Market")
+
+    got = client.get("/api/channels", headers=boss).json()
+    assert got["series"] == ["Wheat", "Rice"]
+    assert got["total"] == 5
+    assert got["channels"] == [
+        {"name": "Depot", "counts": {"Rice": 2, "Wheat": 1}},
+        {"name": "Market", "counts": {"Rice": 1}},
+        {"name": "Shop", "counts": {"Wheat": 1}},
+    ]
+
+    # Only the entries between two times, the second not included.
+    params = {"from": "2026-06-10T00:00:00Z", "to": "2026-06-11T00:00:00Z"}
+    between = client.get("/api/channels", params=params, headers=boss).json()
+    assert between["total"] == 2
+    assert [c["name"] for c in between["channels"]] == ["Depot", "Shop"]
+
+    assert client.get("/api/channels", headers=staff("viewer")).status_code == 200
+    assert client.get("/api/channels").status_code == 401
+
+
 def test_stats_in_weeks(client, boss, lot, entry):
     lot_id = lot()
     start = dt.datetime(2026, 6, 1)
@@ -484,9 +588,13 @@ def test_stats_of_one_crop_are_split_by_variety(client, boss, lot, entry):
     assert got["channels"][0] == {"name": "Depot", "counts": {"Sona": 1, "Heera": 1}}
     assert got["channelCount"] == 2
     assert (got["first"], got["last"]) == ("2026-06-01T01:00:00Z", "2026-06-02T00:00:00Z")
+    # The varieties are the series already.
+    assert got["varieties"] == {}
 
     asked = client.get("/api/stats", params={**params, "by": "crop"}, headers=boss).json()
     assert (asked["by"], asked["series"]) == ("crop", ["Wheat"])
+    # Each crop's varieties, largest first, for when its name is pointed at.
+    assert list(asked["varieties"]["Wheat"].items()) == [("Heera", 2), ("Sona", 1)]
     # A second crop makes the split by crop worth showing again.
     entry(lot(crop="Rice"), received_at=start + dt.timedelta(hours=3))
     mixed = client.get("/api/stats", params=params, headers=boss).json()
@@ -499,12 +607,11 @@ def test_stats_with_nothing_yet(client, boss):
     ).json()
     assert got == {
         "series": [], "by": "crop", "first": None, "last": None, "channelCount": 0,
-        "lotCount": 0, "previous": 0, "columns": [{}] * 7, "channels": [],
+        "lotCount": 0, "varieties": {}, "previous": 0, "columns": [{}] * 7, "channels": [],
         "kpis": {
             "farmers": 0, "repeatFarmers": 0, "withId": 0, "withContact": 0,
             "byOfficer": 0, "devices": 0,
         },
-        "heatmap": [[0] * 24] * 7,
         "lots": {"total": 0, "unused": 0, "waiting": []},
         "latest": [],
     }

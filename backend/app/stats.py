@@ -11,13 +11,14 @@ itself costs the database almost nothing.
 """
 
 import datetime as dt
+import string
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import Integer, and_, case, cast, exists, extract, func, literal_column, select, text
+from sqlalchemy import Integer, and_, case, cast, exists, extract, func, select, text
 from sqlalchemy.orm import Session
 
-from . import cache, schemas
+from . import cache, schemas, seasons
 from .auth import signed_in
 from .database import engine, get_db
 from .models import FarmerEntry, SeedLot
@@ -29,7 +30,9 @@ TOP_CHANNELS = 5
 # A year of days is the widest chart asked for; anything longer uses wider
 # columns (see the dashboard's "All time").
 MOST_COLUMNS = 400
-LATEST = 6
+# The newest entries listed on the dashboard: enough to fill their card
+# down to the bottom of the busiest channels beside it.
+LATEST = 7
 WAITING = 5
 
 
@@ -60,26 +63,6 @@ def bucket(start: dt.datetime, seconds: int):
     return cast(func.floor(elapsed / seconds), Integer)
 
 
-def weekday_and_hour(offset: int):
-    """The day of the week (0 is Sunday) and the hour an entry came in, on
-    the office's clock, `offset` minutes ahead of UTC. The offset is a
-    checked whole number, so writing it into the SQL is safe; that keeps the
-    expressions free of parameters, which GROUP BY needs to match them."""
-    moment = FarmerEntry.received_at
-    name = engine.dialect.name
-    if name == "sqlite":
-        shift = literal_column(f"'{offset:+d} minutes'")
-        return (
-            cast(func.strftime("%w", moment, shift), Integer),
-            cast(func.strftime("%H", moment, shift), Integer),
-        )
-    if name == "postgresql":
-        local = moment + literal_column(f"interval '{offset:d} minutes'")
-        return cast(extract("dow", local), Integer), cast(extract("hour", local), Integer)
-    local = func.date_add(moment, literal_column(f"INTERVAL {offset:d} MINUTE"))
-    return func.dayofweek(local) - 1, func.hour(local)
-
-
 def crop_key(crop: str | None) -> str:
     return (crop or "").strip().lower()
 
@@ -91,11 +74,15 @@ def stats(
     size: int = Query(default=1, ge=1, le=366),
     by: str = Query(default="auto", pattern="^(auto|crop|variety)$"),
     tz: int = Query(default=0, ge=-14 * 60, le=14 * 60),
+    season: str | None = Query(default=None, max_length=40),
     db: Session = Depends(get_db),
 ):
     """Entry counts for `days` days from `start`, in columns of `size` days.
     `start` is midnight where the office is, which the browser knows, and
     `tz` is how many minutes the office's clock is ahead of UTC.
+
+    With a `season` ("Kharif"), only entries that came in during that
+    season count, in every year (see seasons.py).
 
     The counts are split `by` crop or by variety. Left to "auto" it is by
     crop, unless every entry is of one crop: then a split by crop would say
@@ -103,13 +90,78 @@ def stats(
     if days / size > MOST_COLUMNS:
         raise HTTPException(400, "That is too many columns for one chart.")
     start = naive_utc(start)
-    key = ("stats", start.isoformat(), days, size, by, tz)
+    only = (seasons.in_season(season, tz),) if season else ()
+    # The office's clock only matters for where a season's days begin.
+    key = ("stats", start.isoformat(), days, size, by, (season or "").lower(), tz if season else 0)
     return Response(
-        cache.remember(
-            key, ("entries", "lots"), lambda: numbers(db, start, days, size, by, tz)
-        ),
+        cache.remember(key, ("entries", "lots"), lambda: numbers(db, start, days, size, by, only)),
         media_type="application/json",
     )
+
+
+@router.get("/channels", response_model=schemas.ChannelList, dependencies=[Depends(signed_in)])
+def channel_list(
+    start: dt.datetime | None = Query(default=None, alias="from"),
+    end: dt.datetime | None = Query(default=None, alias="to"),
+    season: str | None = Query(default=None, max_length=40),
+    tz: int = Query(default=0, ge=-14 * 60, le=14 * 60),
+    db: Session = Depends(get_db),
+):
+    """Every distribution channel with its entries by crop, busiest first:
+    the whole list behind the dashboard's top five. `from` and `to` limit
+    it to entries received in between (`to` itself not included); a
+    `season` to entries of that season in any year, on a clock `tz`
+    minutes ahead of UTC."""
+    start = naive_utc(start) if start else None
+    end = naive_utc(end) if end else None
+    only = (seasons.in_season(season, tz),) if season else ()
+    key = (
+        "channels",
+        start.isoformat() if start else "",
+        end.isoformat() if end else "",
+        (season or "").lower(),
+        tz if season else 0,
+    )
+    return Response(
+        cache.remember(key, ("entries", "lots"), lambda: channel_numbers(db, start, end, only)),
+        media_type="application/json",
+    )
+
+
+def channel_numbers(
+    db: Session, start: dt.datetime | None, end: dt.datetime | None, only: tuple = ()
+) -> bytes:
+    # Crops named and ordered as on the dashboard, so they keep their colours.
+    names: dict[str, str] = {}
+    for value, _, _ in seen(db, "crop"):
+        names.setdefault(crop_key(value), string.capwords((value or "").strip()) or "Not given")
+
+    wanted = list(only)
+    if start:
+        wanted.append(FarmerEntry.received_at >= start)
+    if end:
+        wanted.append(FarmerEntry.received_at < end)
+
+    channels: dict[str, dict[str, int]] = {}
+    for channel, crop, n in db.execute(
+        select(FarmerEntry.channel, SeedLot.crop, func.count())
+        .select_from(FarmerEntry)
+        .join(SeedLot, FarmerEntry.lot_id == SeedLot.id)
+        .where(*wanted)
+        .group_by(FarmerEntry.channel, SeedLot.crop)
+    ):
+        crop_name = names.get(crop_key(crop), "Not given")
+        counts = channels.setdefault((channel or "").strip() or "Not given", {})
+        counts[crop_name] = counts.get(crop_name, 0) + n
+
+    busiest = sorted(channels.items(), key=lambda item: (-sum(item[1].values()), item[0].lower()))
+    return schemas.ChannelList.model_validate(
+        {
+            "series": list(dict.fromkeys(names.values())),
+            "total": sum(sum(counts.values()) for counts in channels.values()),
+            "channels": [{"name": name, "counts": counts} for name, counts in busiest],
+        }
+    ).model_dump_json(by_alias=True).encode()
 
 
 def lot_seeds(db: Session) -> dict[str, tuple[str, str]]:
@@ -152,10 +204,14 @@ def seen(db: Session, by: str) -> list:
     return cache.remember(("seen", by), ("entries", "lots"), make)
 
 
-def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: int) -> bytes:
+def numbers(
+    db: Session, start: dt.datetime, days: int, size: int, by: str, only: tuple = ()
+) -> bytes:
+    """`only` holds any further conditions an entry must meet to count, such
+    as being in a season."""
     end = start + dt.timedelta(days=days)
     before = start - dt.timedelta(days=days)
-    in_period = (FarmerEntry.received_at >= start, FarmerEntry.received_at < end)
+    in_period = (FarmerEntry.received_at >= start, FarmerEntry.received_at < end, *only)
 
     found = seen(db, by)
     if by == "auto":
@@ -169,7 +225,12 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
     first: dt.datetime | None = None
     last: dt.datetime | None = None
     for value, earliest, latest in found:
-        names.setdefault(crop_key(value), (value or "").strip() or "Not given")
+        shown = (value or "").strip()
+        # Crops are written "Lentil", however the lots spell them. Varieties
+        # stay as typed: names such as "DRR DHAN-60" hold codes.
+        if by == "crop":
+            shown = string.capwords(shown)
+        names.setdefault(crop_key(value), shown or "Not given")
         first = first or earliest
         last = max(last, latest) if last else latest
 
@@ -203,6 +264,28 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
         counts = channels.setdefault((channel or "").strip() or "Not given", {})
         counts[name(crop)] = counts.get(name(crop), 0) + n
 
+    # What each crop was made of, shown when its name is pointed at. Variety
+    # names are joined like crops: "pl-8 " and "PL-8" are the same.
+    varieties: dict[str, dict[str, int]] = {}
+    if by == "crop":
+        spelled: dict[tuple[str, str], str] = {}
+        for crop, variety, n in db.execute(
+            select(SeedLot.crop, SeedLot.variety, func.count())
+            .select_from(FarmerEntry)
+            .join(SeedLot, FarmerEntry.lot_id == SeedLot.id)
+            .where(*in_period)
+            .group_by(SeedLot.crop, SeedLot.variety)
+        ):
+            label = spelled.setdefault(
+                (name(crop), crop_key(variety)), (variety or "").strip() or "Not given"
+            )
+            counts = varieties.setdefault(name(crop), {})
+            counts[label] = counts.get(label, 0) + n
+        varieties = {
+            crop: dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+            for crop, counts in varieties.items()
+        }
+
     # The lots farmers' entries were for in the period. Grouping first is
     # much quicker than the database's own count(DISTINCT ...).
     per_lot = select(FarmerEntry.lot_id).where(*in_period).group_by(FarmerEntry.lot_id).subquery()
@@ -221,7 +304,7 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
             counted(now, FarmerEntry.id_number != ""),
             counted(now, FarmerEntry.contact != ""),
             counted(now, FarmerEntry.filled_by == "Field officer"),
-        ).where(FarmerEntry.received_at >= before, FarmerEntry.received_at < end)
+        ).where(FarmerEntry.received_at >= before, FarmerEntry.received_at < end, *only)
     ).one()
 
     # Different mobile numbers, and those given on more than one entry: the
@@ -246,14 +329,6 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
         .subquery()
     )
     devices = db.scalar(select(func.count()).select_from(per_device))
-
-    weekday, hour = weekday_and_hour(tz)
-    heatmap = [[0] * 24 for _ in range(7)]
-    for day, hour_of_day, n in db.execute(
-        select(weekday, hour, func.count()).where(*in_period).group_by(weekday, hour)
-    ):
-        if day is not None and hour_of_day is not None and 0 <= day < 7 and 0 <= hour_of_day < 24:
-            heatmap[int(day)][int(hour_of_day)] += n
 
     latest = [
         {
@@ -292,6 +367,7 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
             "columns": columns,
             "channel_count": len(channels),
             "lot_count": lot_count,
+            "varieties": varieties,
             "channels": [
                 {"name": channel, "counts": counts} for channel, counts in busiest[:TOP_CHANNELS]
             ],
@@ -303,7 +379,6 @@ def numbers(db: Session, start: dt.datetime, days: int, size: int, by: str, tz: 
                 "by_officer": by_officer,
                 "devices": devices,
             },
-            "heatmap": heatmap,
             "lots": lot_summary(db),
             "latest": latest,
         }

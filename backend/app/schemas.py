@@ -305,6 +305,29 @@ class ChannelCount(Wire):
     counts: dict[str, int]
 
 
+class Season(Wire):
+    """One run of a crop season (see seasons.py)."""
+
+    season: str
+    # "Rabi 2025–26", "Kharif 2026".
+    label: str
+    # Its first and last day; both count.
+    start: dt.date
+    end: dt.date
+    entries: int
+
+
+class ChannelList(Wire):
+    """Every distribution channel, busiest first (see stats.py)."""
+
+    # Every crop that has ever had an entry, oldest first, for the colours.
+    series: list[str]
+    # Entries in the period, over all channels.
+    total: int
+    # Each channel's entries by crop.
+    channels: list[ChannelCount]
+
+
 class Stats(Wire):
     """The numbers behind the dashboard's charts (see stats.py)."""
 
@@ -319,6 +342,9 @@ class Stats(Wire):
     channel_count: int = 0
     # How many seed lots had an entry in the period.
     lot_count: int = 0
+    # When split by crop: each crop's varieties and their entries in the
+    # period, largest first, as in {"Lentil": {"PL-8": 120, ...}}.
+    varieties: dict[str, dict[str, int]] = {}
 
     @field_serializer("first", "last")
     def moment_utc(self, value: dt.datetime | None) -> str | None:
@@ -329,11 +355,8 @@ class Stats(Wire):
     # One per day or week: how many entries each crop had.
     columns: list[dict[str, int]]
     channels: list[ChannelCount]
-    # The rest feeds the dashboard's insights.
+    # Counts about the period's entries, for insights such as repeat farmers.
     kpis: "Kpis | None" = None
-    # Entries by day of the week (0 is Sunday) and hour, in the office's
-    # own time: seven rows of 24 counts.
-    heatmap: list[list[int]] = []
     lots: "LotSummary | None" = None
     # The newest few entries of the period.
     latest: list["LatestEntry"] = []

@@ -8,7 +8,9 @@ import SeedDetails from '../components/SeedDetails'
 import { APP_NAME, DEPARTMENT } from '../config'
 import { CHANNELS } from '../data/channels'
 import { getDeviceId, getDeviceInfo, newId } from '../data/device'
-import { DEFAULT_FORMS, checkCustom } from '../data/forms'
+import { CHOICES, TEXT, localize, saveLang, savedLang } from '../data/farmerText'
+import type { Lang, Text } from '../data/farmerText'
+import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec } from '../data/forms'
 import {
   loadLot,
@@ -28,6 +30,9 @@ function FarmerForm() {
   // 'queued' means it is on the phone and may or may not have been sent yet.
   const [saved, setSaved] = useState<null | 'sent' | 'queued'>(null)
   const pending = usePendingCount()
+  // Hindi first: the form is for farmers in Bihar.
+  const [lang, setLang] = useState<Lang>(savedLang)
+  const t = TEXT[lang]
 
   useEffect(() => {
     let live = true
@@ -38,6 +43,16 @@ function FarmerForm() {
     }
   }, [lotId])
 
+  // Screen readers then read the page in the right language.
+  useEffect(() => {
+    document.documentElement.lang = lang
+  }, [lang])
+
+  function chooseLang(next: Lang) {
+    setLang(next)
+    saveLang(next)
+  }
+
   return (
     <>
       <header className="topbar">
@@ -47,29 +62,44 @@ function FarmerForm() {
       </header>
 
       <main className="public-main">
-        {lot === 'loading' && <p className="muted">Loading…</p>}
+        <div className="lang-switch" role="group" aria-label="भाषा / Language">
+          <button
+            type="button"
+            className={lang === 'hi' ? 'on' : ''}
+            aria-pressed={lang === 'hi'}
+            lang="hi"
+            onClick={() => chooseLang('hi')}
+          >
+            हिन्दी
+          </button>
+          <button
+            type="button"
+            className={lang === 'en' ? 'on' : ''}
+            aria-pressed={lang === 'en'}
+            lang="en"
+            onClick={() => chooseLang('en')}
+          >
+            English
+          </button>
+        </div>
+
+        {lot === 'loading' && <p className="muted">{t.loading}</p>}
 
         {lot === 'missing' && (
           <div className="public-title">
-            <h1>This code is not recognised</h1>
-            <p>
-              Scan the QR code on the seed bag again. If it still does not
-              work, tell the person who gave you the bag.
-            </p>
+            <h1>{t.missingTitle}</h1>
+            <p>{t.missingText}</p>
           </div>
         )}
 
         {lot === 'offline' && (
           <>
             <div className="public-title">
-              <h1>No internet connection</h1>
-              <p>
-                The seed details could not be loaded. Move to a place with
-                signal and try again.
-              </p>
+              <h1>{t.offlineTitle}</h1>
+              <p>{t.offlineText}</p>
             </div>
             <button type="button" onClick={() => window.location.reload()}>
-              Try again
+              {t.tryAgain}
             </button>
           </>
         )}
@@ -77,33 +107,38 @@ function FarmerForm() {
         {typeof lot === 'object' &&
           (saved ? (
             <Confirmation
+              t={t}
               sent={saved === 'sent' || pending === 0}
               onAnother={() => setSaved(null)}
             />
           ) : (
             <>
-              {pending > 0 && <Waiting count={pending} />}
+              {pending > 0 && <Waiting t={t} count={pending} />}
 
               <div className="public-title">
                 <h1>
                   {lot.crop}, {lot.variety}
                 </h1>
-                <p>Check the seed details, then fill in yours below.</p>
+                <p>{t.intro}</p>
               </div>
 
               <section className="card">
                 <div className="card-head">
-                  <h2>Seed details</h2>
-                  <p>From the code on this bag</p>
+                  <h2>{t.seedDetails}</h2>
+                  <p>{t.fromCode}</p>
                 </div>
                 <div className="card-body">
-                  <SeedDetails lot={lot} fields={lot.lotFields ?? DEFAULT_FORMS.lot} />
+                  <SeedDetails
+                    lot={lot}
+                    fields={localize(lot.lotFields ?? DEFAULT_FORMS.lot, 'lot', lang)}
+                  />
                 </div>
               </section>
 
               <EntryForm
                 lot={lot}
-                fields={lot.farmerFields ?? DEFAULT_FORMS.farmer}
+                fields={localize(lot.farmerFields ?? DEFAULT_FORMS.farmer, 'farmer', lang)}
+                lang={lang}
                 onSaved={setSaved}
               />
             </>
@@ -113,22 +148,18 @@ function FarmerForm() {
   )
 }
 
-function Waiting({ count }: { count: number }) {
+function Waiting({ t, count }: { t: Text; count: number }) {
   return (
     <div className="warning">
-      <p>
-        {count === 1
-          ? 'One earlier entry is saved on this phone and has not been sent yet.'
-          : `${count} earlier entries are saved on this phone and have not been sent yet.`}
-      </p>
+      <p>{t.waiting(count)}</p>
       <button type="button" className="secondary" onClick={() => void sendPending()}>
-        Send now
+        {t.sendNow}
       </button>
     </div>
   )
 }
 
-function Confirmation({ sent, onAnother }: { sent: boolean; onAnother: () => void }) {
+function Confirmation({ t, sent, onAnother }: { t: Text; sent: boolean; onAnother: () => void }) {
   return (
     <>
       {sent ? (
@@ -138,27 +169,24 @@ function Confirmation({ sent, onAnother }: { sent: boolean; onAnother: () => voi
             <path d="M15 27l7.5 7.5L37 19" />
           </svg>
           <div>
-            <h1>Sent</h1>
-            <p>Your details have been received. Thank you.</p>
+            <h1>{t.sent}</h1>
+            <p>{t.sentText}</p>
           </div>
         </div>
       ) : (
         <div className="warning" role="status">
-          <h1>Saved on this phone</h1>
+          <h1>{t.savedTitle}</h1>
+          <p>{t.savedText}</p>
           <p>
-            There is no internet right now, so your details have not been sent
-            yet. They will be sent by themselves when the signal comes back.
-          </p>
-          <p>
-            <strong>Keep this page open until it says “Sent”.</strong>
+            <strong>{t.keepOpen}</strong>
           </p>
           <button type="button" className="secondary" onClick={() => void sendPending()}>
-            Try sending now
+            {t.trySending}
           </button>
         </div>
       )}
       <button type="button" className="secondary" onClick={onAnother}>
-        Fill in the form for another farmer
+        {t.another}
       </button>
     </>
   )
@@ -186,43 +214,47 @@ function nowIso(): string {
 }
 type Errors = Record<string, string>
 
-// Checks the questions that are shown, using the office's settings.
-function check(values: Values, fields: FieldSpec[]): Errors {
+// Checks the questions that are shown, using the office's settings. The
+// messages are in the form's language (`fields` are already in it too).
+function check(values: Values, fields: FieldSpec[], t: Text): Errors {
   const errors: Errors = {}
   const idNumber = values.idNumber.replace(/\s/g, '')
   for (const field of fields) {
     const key = field.key
     if (!field.builtin) {
-      const problem = checkCustom(field, values.extra[key] ?? '')
-      if (problem) errors[key] = problem
+      // A question the office added.
+      const value = (values.extra[key] ?? '').trim()
+      if (value === '' && field.required) errors[key] = t.enter(field.label)
+      else if (value !== '' && field.type === 'number' && !Number.isFinite(Number(value)))
+        errors[key] = t.enterNumber
       continue
     }
     switch (key) {
       case 'farmerName':
-        if (values.farmerName.trim().length < 2) errors[key] = 'Enter the farmer’s name'
+        if (values.farmerName.trim().length < 2) errors[key] = t.enterName
         break
       case 'kycType':
-        if (field.required && !values.kycType) errors[key] = 'Choose a document type'
+        if (field.required && !values.kycType) errors[key] = t.chooseDocument
         break
       case 'idNumber':
-        if (field.required && !idNumber) errors[key] = `Enter ${field.label.toLowerCase()}`
+        if (field.required && !idNumber) errors[key] = t.enter(field.label)
         else if (values.kycType === 'Aadhaar ID' && idNumber && !/^\d{12}$/.test(idNumber))
-          errors[key] = 'An Aadhaar number has 12 digits'
+          errors[key] = t.aadhaarDigits
         else if (values.kycType === 'PAN ID' && idNumber && !/^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(idNumber))
-          errors[key] = 'A PAN has 5 letters, 4 digits, then 1 letter'
+          errors[key] = t.panShape
         break
       case 'contact':
-        if (field.required && !values.contact.trim()) errors[key] = 'Enter a mobile number'
+        if (field.required && !values.contact.trim()) errors[key] = t.enterMobile
         else if (values.contact.trim() && !/^\d{10}$/.test(values.contact.trim()))
-          errors[key] = 'Enter a 10 digit mobile number, without spaces'
+          errors[key] = t.mobileDigits
         break
       case 'channel':
-        if (field.required && !values.channel) errors[key] = 'Choose a distribution channel'
+        if (field.required && !values.channel) errors[key] = t.chooseChannel
         break
       default: {
         const value = values[key as keyof Values]
         if (field.required && typeof value === 'string' && !value.trim())
-          errors[key] = `Enter ${field.label.toLowerCase()}`
+          errors[key] = t.enter(field.label)
       }
     }
   }
@@ -231,18 +263,26 @@ function check(values: Values, fields: FieldSpec[]): Errors {
 
 type EntryFormProps = {
   lot: SeedLot
-  // The questions, as the office set them up.
+  // The questions, as the office set them up, in the form's language.
   fields: FieldSpec[]
+  lang: Lang
   onSaved: (how: 'sent' | 'queued') => void
 }
 
-function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
+function EntryForm({ lot, fields, lang, onSaved }: EntryFormProps) {
+  const t = TEXT[lang]
+  // What a fixed choice is called in this language; saved in English.
+  const choice = (value: string) => CHOICES[lang][value] ?? value
   const shown = fields.filter((field) => !field.hidden)
   const [values, setValues] = useState(blank)
-  const [errors, setErrors] = useState<Errors>({})
   const [channelFilter, setChannelFilter] = useState('')
-  const [failure, setFailure] = useState('')
+  const [failure, setFailure] = useState<'' | 'refused' | 'notSent'>('')
   const [busy, setBusy] = useState(false)
+
+  // After the first Submit the answers are checked as they change, so a
+  // message goes once its answer is put right, and follows the language.
+  const [checked, setChecked] = useState(false)
+  const shownErrors: Errors = checked ? check(values, shown, t) : {}
 
   const set = (patch: Partial<Values>) => setValues({ ...values, ...patch })
 
@@ -257,8 +297,8 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    const found = check(values, shown)
-    setErrors(found)
+    const found = check(values, shown, t)
+    setChecked(true)
     const firstBad = shown.find((field) => found[field.key])
     if (firstBad) {
       document.getElementById(firstBad.key)?.focus()
@@ -288,14 +328,12 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       userAgent: navigator.userAgent,
     }
 
-    const refusedMessage =
-      'These details could not be accepted. Check them, and if this keeps happening, tell the person who gave you the bag.'
     try {
       // Save on the phone first, then try to send.
       await queueEntry(entry)
       await sendPending()
       if (wasRefused(entry.id)) {
-        setFailure(refusedMessage)
+        setFailure('refused')
         setBusy(false)
         return
       }
@@ -307,11 +345,7 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       if (result === 'sent') {
         onSaved('sent')
       } else {
-        setFailure(
-          result === 'refused'
-            ? refusedMessage
-            : 'Your details could not be sent or saved. Check your internet and press Submit again.',
-        )
+        setFailure(result === 'refused' ? 'refused' : 'notSent')
         setBusy(false)
       }
     }
@@ -323,10 +357,10 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       <>
         <div className="field-label">
           <label id={`${field.key}Label`}>{field.label}</label>
-          <span>{field.required ? 'Required' : 'Optional'}</span>
+          <span>{field.required ? t.required : t.optional}</span>
         </div>
         {field.hint && <p className="hint">{field.hint}</p>}
-        {errors[field.key] && <p className="error">{errors[field.key]}</p>}
+        {shownErrors[field.key] && <p className="error">{shownErrors[field.key]}</p>}
       </>
     )
   }
@@ -338,7 +372,8 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       label: field.label,
       optional: !field.required,
       hint: field.hint,
-      error: errors[field.key],
+      error: shownErrors[field.key],
+      marks: [t.required, t.optional] as [string, string],
     }
     switch (field.builtin ? field.key : '') {
       case 'date':
@@ -366,7 +401,7 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
                     checked={values.filledBy === who}
                     onChange={() => set({ filledBy: who })}
                   />
-                  {who}
+                  {choice(who)}
                 </label>
               ))}
             </div>
@@ -397,15 +432,15 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
                     checked={values.kycType === type}
                     onChange={() => set({ kycType: type })}
                   />
-                  {type}
+                  {choice(type)}
                 </label>
               ))}
             </div>
             {values.kycType === 'Other' && (
               <input
                 className="gap"
-                aria-label="Which document?"
-                placeholder="Which document?"
+                aria-label={t.whichDocument}
+                placeholder={t.whichDocument}
                 value={values.kycOther}
                 onChange={(e) => set({ kycOther: e.target.value })}
               />
@@ -441,8 +476,8 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
         return (
           <Field {...common} className="full">
             <input
-              aria-label="Shorten the distribution channel list"
-              placeholder="Type to shorten the list"
+              aria-label={t.shortenList}
+              placeholder={t.typeToShorten}
               value={channelFilter}
               onChange={(e) => setChannelFilter(e.target.value)}
             />
@@ -452,7 +487,7 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
               onChange={(e) => set({ channel: e.target.value })}
             >
               <option value="">
-                {channels.length === 0 ? 'Nothing matches' : `Choose (${channels.length})`}
+                {channels.length === 0 ? t.nothingMatches : t.chooseCount(channels.length)}
               </option>
               {channels.map((c) => (
                 <option key={c}>{c}</option>
@@ -481,6 +516,7 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
               field={field}
               value={values.extra[field.key] ?? ''}
               onChange={(value) => set({ extra: { ...values.extra, [field.key]: value } })}
+              choose={t.choose}
             />
           </Field>
         )
@@ -490,7 +526,7 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
   return (
     <form className="card" onSubmit={submit} noValidate>
       <div className="card-head">
-        <h2>Farmer details</h2>
+        <h2>{t.farmerDetails}</h2>
       </div>
 
       <div className="card-body form-grid">{shown.map(question)}</div>
@@ -498,16 +534,13 @@ function EntryForm({ lot, fields, onSaved }: EntryFormProps) {
       <div className="card-foot">
         {failure ? (
           <p className="grow error" role="alert">
-            {failure}
+            {t[failure]}
           </p>
         ) : (
-          <p className="grow">
-            {DEPARTMENT} records these details together with information
-            about this phone: its model, browser, screen and network address.
-          </p>
+          <p className="grow">{t.privacy(DEPARTMENT)}</p>
         )}
         <button type="submit" disabled={busy}>
-          {busy ? 'Saving…' : 'Submit'}
+          {busy ? t.saving : t.submit}
         </button>
       </div>
     </form>

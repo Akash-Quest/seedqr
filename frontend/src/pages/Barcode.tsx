@@ -60,7 +60,7 @@ function Barcode() {
     <>
       <PageHeader
         title="Barcode"
-        subtitle="Add a seed lot and print the QR code for its bags."
+        subtitle="Add a seed variety and print the QR code for its bags."
       />
 
       <div className="page">

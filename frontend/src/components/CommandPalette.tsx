@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { canEdit, isAdmin, useApi } from '../data/api'
 import type { SeedLot } from '../data/types'
 import {
+  ChannelIcon,
   DashboardIcon,
   EditIcon,
   PlusIcon,
@@ -46,12 +47,13 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
     { key: 'dash', group: 'Pages', label: 'Dashboard', icon: DashboardIcon, to: '/' },
     { key: 'lots', group: 'Pages', label: 'Seed lots and QR codes', icon: QrIcon, to: '/barcode' },
     { key: 'farmers', group: 'Pages', label: 'Farmer entries', icon: UsersIcon, to: '/users' },
+    { key: 'channels', group: 'Pages', label: 'Distribution channels', icon: ChannelIcon, to: '/channels' },
     ...(isAdmin()
       ? [{ key: 'staff', group: 'Pages', label: 'Staff accounts', icon: StaffIcon, to: '/staff' }]
       : []),
     ...(canEdit()
       ? [
-          { key: 'new', group: 'Actions', label: 'Add a seed lot', icon: PlusIcon, to: '/barcode?new=1' },
+          { key: 'new', group: 'Actions', label: 'Add a seed variety', icon: PlusIcon, to: '/barcode?new=1' },
           { key: 'import', group: 'Actions', label: 'Import farmer entries from Excel', icon: UploadIcon, to: '/users?import=1' },
         ]
       : []),

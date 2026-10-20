@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { total } from '../data/series'
 import { ChevronRightIcon } from './Icons'
+import VarietyTip from './VarietyTip'
 import type { Part } from '../data/series'
 
 const RADIUS = 42
@@ -14,11 +15,13 @@ type DonutProps = {
   unit: [singular: string, plural: string]
   // What the picture shows, for someone who cannot see it.
   label: string
+  // Each crop's varieties, listed when its name is pointed at.
+  varieties?: Record<string, Record<string, number>>
 }
 
 // A ring split by share, with every name, number and percentage listed
 // beside it so the colours are never the only way to read it.
-function Donut({ parts, unit, label }: DonutProps) {
+function Donut({ parts, unit, label, varieties = {} }: DonutProps) {
   const [active, setActive] = useState<string | null>(null)
   // Whether the list under "Other" is open.
   const [open, setOpen] = useState(false)
@@ -94,7 +97,11 @@ function Donut({ parts, unit, label }: DonutProps) {
         {parts.map((part) => (
           <Fragment key={part.name}>
             <li
-              className={active === part.name ? 'on' : ''}
+              className={[
+                active === part.name ? 'on' : '',
+                varieties[part.name] ? 'has-tip' : '',
+              ].join(' ')}
+              tabIndex={varieties[part.name] ? 0 : undefined}
               onPointerEnter={() => setActive(part.name)}
               onPointerLeave={() => setActive(null)}
             >
@@ -115,6 +122,7 @@ function Donut({ parts, unit, label }: DonutProps) {
               )}
               <strong>{part.value.toLocaleString('en-IN')}</strong>
               <span className="muted">{share(part.value)}%</span>
+              <VarietyTip varieties={varieties[part.name]} />
             </li>
             {open &&
               part.members?.map((member) => (

@@ -56,6 +56,18 @@ export function UsersIcon() {
 }
 
 // A person with a badge: the office's own accounts.
+// A shop front, for the distribution channels.
+export function ChannelIcon() {
+  return (
+    <Icon>
+      <path d="M4 9l1.5-5h13L20 9" />
+      <path d="M4 9a2.67 2.67 0 0 0 5.33 0 2.67 2.67 0 0 0 5.34 0A2.67 2.67 0 0 0 20 9" />
+      <path d="M5 11v9h14v-9" />
+      <path d="M10 20v-5h4v5" />
+    </Icon>
+  )
+}
+
 export function StaffIcon() {
   return (
     <Icon>
@@ -162,15 +174,6 @@ export function InboxIcon() {
   )
 }
 
-export function ClockIcon() {
-  return (
-    <Icon>
-      <circle cx="12" cy="12" r="8.5" />
-      <path d="M12 7.5V12l3 2" />
-    </Icon>
-  )
-}
-
 export function EditIcon() {
   return (
     <Icon>
@@ -231,24 +234,6 @@ export function AlertIcon() {
     <Icon>
       <path d="M12 4l9 16H3z" />
       <path d="M12 10v4.5M12 17.5h.01" />
-    </Icon>
-  )
-}
-
-export function TrendUpIcon() {
-  return (
-    <Icon>
-      <path d="M3.5 17l6-6 4 4 7-7.5" />
-      <path d="M15 7.5h5.5V13" />
-    </Icon>
-  )
-}
-
-export function TrendDownIcon() {
-  return (
-    <Icon>
-      <path d="M3.5 7l6 6 4-4 7 7.5" />
-      <path d="M15 16.5h5.5V11" />
     </Icon>
   )
 }

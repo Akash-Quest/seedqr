@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../data/api'
+import { CloseIcon } from './Icons'
 import { checkCustom } from '../data/forms'
 import type { FieldSpec } from '../data/forms'
 import type { KycType, ReceivedEntry } from '../data/types'
@@ -17,8 +18,9 @@ type EntryEditorProps = {
 
 const KYC_TYPES: KycType[] = ['', 'Aadhaar ID', 'PAN ID', 'Other']
 
-// Corrects what was written on one entry. Which seed lot it belongs to,
-// when it was received and what phone sent it are not changed here.
+// Corrects what was written on one entry, in a window over the page.
+// Which seed lot it belongs to, when it was received and what phone sent it
+// are not changed here.
 function EntryEditor({ entry, fields, onSaved, onCancel }: EntryEditorProps) {
   const [values, setValues] = useState({
     date: entry.date ?? '',
@@ -36,6 +38,14 @@ function EntryEditor({ entry, fields, onSaved, onCancel }: EntryEditorProps) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [failure, setFailure] = useState('')
   const [busy, setBusy] = useState(false)
+
+  // Opens over the page, with the rest of it dimmed and out of reach.
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const box = dialog.current
+    if (box && !box.open) box.showModal()
+    return () => box?.close()
+  }, [])
 
   const set = (patch: Partial<typeof values>) => setValues({ ...values, ...patch })
   const label = (key: string, fallback: string) =>
@@ -103,86 +113,107 @@ function EntryEditor({ entry, fields, onSaved, onCancel }: EntryEditorProps) {
   }
 
   return (
-    <form onSubmit={submit} noValidate>
-      <h3>Correct this entry</h3>
-      <div className="form-grid">
-        {line('farmerName', 'Farmer name')}
-        <Field id={id('date')} label={label('date', 'Date')}>
-          <input
-            id={id('date')}
-            type="date"
-            value={values.date}
-            onChange={(e) => set({ date: e.target.value })}
-          />
-        </Field>
-        <Field id={id('kycType')} label={label('kycType', 'Document / KYC type')}>
-          <select
-            id={id('kycType')}
-            value={values.kycType}
-            onChange={(e) => set({ kycType: e.target.value as KycType })}
-          >
-            {KYC_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type || 'Not given'}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {values.kycType === 'Other' && (
-          <Field id={id('kycOther')} label="Which document?">
+    <dialog
+      ref={dialog}
+      className="modal"
+      aria-labelledby="edit-title"
+      // Escape closes it, the same as Cancel.
+      onCancel={(event) => {
+        event.preventDefault()
+        onCancel()
+      }}
+    >
+      <form className="modal-form" onSubmit={submit} noValidate>
+        <div className="modal-head">
+          <div>
+            <h2 id="edit-title">Edit farmer entry</h2>
+            <p className="muted">
+              {entry.farmerName || 'No name'} · {entry.lot?.crop}, {entry.lot?.variety}
+            </p>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onCancel}>
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="modal-body form-grid">
+          {line('farmerName', 'Farmer name')}
+          <Field id={id('date')} label={label('date', 'Date')}>
             <input
-              id={id('kycOther')}
-              value={values.kycOther}
-              onChange={(e) => set({ kycOther: e.target.value })}
+              id={id('date')}
+              type="date"
+              value={values.date}
+              onChange={(e) => set({ date: e.target.value })}
             />
           </Field>
-        )}
-        {line('idNumber', 'ID number')}
-        {line('contact', 'Contact number')}
-        {line('landholding', 'Landholding size')}
-        {line('quantity', 'Quantity of seed given')}
-        <Field id={id('filledBy')} label={label('filledBy', 'Who filled this in?')}>
-          <select
-            id={id('filledBy')}
-            value={values.filledBy}
-            onChange={(e) => set({ filledBy: e.target.value as ReceivedEntry['filledBy'] })}
-          >
-            <option>Farmer</option>
-            <option>Field officer</option>
-          </select>
-        </Field>
-        {line('channel', 'Distribution channel', 'full')}
-        {custom.map((field) => (
-          <Field
-            key={field.key}
-            id={id(field.key)}
-            label={field.label}
-            error={errors[field.key]}
-            className={field.type === 'textarea' ? 'full' : ''}
-          >
-            <AnswerInput
-              field={{ ...field, key: id(field.key) }}
-              value={values.extra[field.key] ?? ''}
-              onChange={(value) => set({ extra: { ...values.extra, [field.key]: value } })}
-            />
+          <Field id={id('kycType')} label={label('kycType', 'Document / KYC type')}>
+            <select
+              id={id('kycType')}
+              value={values.kycType}
+              onChange={(e) => set({ kycType: e.target.value as KycType })}
+            >
+              {KYC_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type || 'Not given'}
+                </option>
+              ))}
+            </select>
           </Field>
-        ))}
-      </div>
+          {values.kycType === 'Other' && (
+            <Field id={id('kycOther')} label="Which document?">
+              <input
+                id={id('kycOther')}
+                value={values.kycOther}
+                onChange={(e) => set({ kycOther: e.target.value })}
+              />
+            </Field>
+          )}
+          {line('idNumber', 'ID number')}
+          {line('contact', 'Contact number')}
+          {line('landholding', 'Landholding size')}
+          {line('quantity', 'Quantity of seed given')}
+          <Field id={id('filledBy')} label={label('filledBy', 'Who filled this in?')}>
+            <select
+              id={id('filledBy')}
+              value={values.filledBy}
+              onChange={(e) => set({ filledBy: e.target.value as ReceivedEntry['filledBy'] })}
+            >
+              <option>Farmer</option>
+              <option>Field officer</option>
+            </select>
+          </Field>
+          {line('channel', 'Distribution channel', 'full')}
+          {custom.map((field) => (
+            <Field
+              key={field.key}
+              id={id(field.key)}
+              label={field.label}
+              error={errors[field.key]}
+              className={field.type === 'textarea' ? 'full' : ''}
+            >
+              <AnswerInput
+                field={{ ...field, key: id(field.key) }}
+                value={values.extra[field.key] ?? ''}
+                onChange={(value) => set({ extra: { ...values.extra, [field.key]: value } })}
+              />
+            </Field>
+          ))}
+        </div>
 
-      <div className="edit-actions">
-        {failure && (
-          <p className="error" role="alert">
-            {failure}
-          </p>
-        )}
-        <button type="button" className="secondary" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" disabled={busy}>
-          {busy ? 'Saving…' : 'Save changes'}
-        </button>
-      </div>
-    </form>
+        <div className="modal-foot">
+          {failure && (
+            <p className="error" role="alert">
+              {failure}
+            </p>
+          )}
+          <button type="button" className="secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" disabled={busy}>
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </form>
+    </dialog>
   )
 }
 

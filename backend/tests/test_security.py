@@ -258,7 +258,10 @@ def test_kept_answers_change_as_soon_as_the_data_does(client, boss, lot, entry):
 
     entry(lot_id)
     after = client.get("/api/stats", params=params, headers=boss).json()
-    assert sum(map(sum, after["heatmap"])) == sum(map(sum, before["heatmap"])) + 1
+    def counted(stats: dict) -> int:
+        return sum(n for column in stats["columns"] for n in column.values())
+
+    assert counted(after) == counted(before) + 1
     assert client.get("/api/lots", headers=boss).json()[0]["entryCount"] == 1
     assert client.get("/api/entries", headers=boss).json()["total"] == 1
 

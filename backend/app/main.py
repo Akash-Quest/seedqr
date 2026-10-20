@@ -18,7 +18,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from . import auth, cache, forms, limits, schemas, stats
+from . import auth, cache, forms, limits, schemas, seasons, stats
 from .config import BACKEND_DIR, settings
 from .database import SessionLocal, get_db
 from .models import FarmerEntry, SeedLot, User, seed_key, utc_now
@@ -36,6 +36,7 @@ app = FastAPI(
 )
 app.include_router(auth.router)
 app.include_router(stats.router)
+app.include_router(seasons.router)
 
 
 # The frontend reads every failure as {"error": "..."}.

@@ -7,54 +7,46 @@ import ColumnChart from '../components/ColumnChart'
 import type { Column } from '../components/ColumnChart'
 import CountUp from '../components/CountUp'
 import Donut from '../components/Donut'
-import Heatmap from '../components/Heatmap'
 import {
-  AlertIcon,
+  ChevronRightIcon,
   InboxIcon,
   PhoneIcon,
   PlusIcon,
   QrIcon,
   RefreshIcon,
-  SparkIcon,
-  TrendDownIcon,
-  TrendUpIcon,
-  UsersIcon,
 } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
 import { PageSkeleton } from '../components/Skeleton'
 import Sparkline from '../components/Sparkline'
+import VarietyTip from '../components/VarietyTip'
 import { canEdit, useApi } from '../data/api'
-import { insights } from '../data/insights'
-import type { Insight } from '../data/insights'
 import { ago, useNow } from '../data/motion'
+import { tidyQuantity, titleCase } from '../data/text'
 import { cropSeries, sum, total } from '../data/series'
 import type { Part, Series } from '../data/series'
 import { toast } from '../data/toast'
 import { formatDateTime } from '../data/types'
-import type { CropCounts, Stats } from '../data/types'
+import type { CropCounts, Season, Stats } from '../data/types'
 
 // Stand for "All time" and "Custom" where the others give a number of days.
+// "All time" is everything since the first entry; a season is one run of
+// Rabi, Kharif or Garma; "Custom" is from one picked day to another.
 const ALL = 0
 const CUSTOM = -1
+const SEASON = -2
 
-const RANGES = [
-  // Everything since the first entry, however long ago that was.
-  { days: ALL, label: 'All time' },
-  { days: 7, label: 'Last 7 days' },
-  { days: 30, label: 'Last 30 days' },
-  { days: 90, label: 'Last 90 days' },
-  // From one picked day to another.
-  { days: CUSTOM, label: 'Custom' },
-]
+// The seasons' buttons. Their dates are set on the server
+// (backend/app/seasons.py); the names must match the ones there.
+const SEASON_ORDER = ['Rabi', 'Kharif', 'Garma']
 
 const DAY = 86_400_000
-// How many days one chart column may cover. "All time" takes the smallest
-// that keeps the chart to about a month's worth of columns.
-const COLUMN_DAYS = [1, 7, 30, 90, 365]
+// How many days one chart column may cover: a week at least. "All time"
+// takes the smallest that keeps the chart to about a month's worth of
+// columns.
+const COLUMN_DAYS = [7, 30, 90, 365]
 const MOST_COLUMNS = 31
 // The column sizes that can be picked over the chart.
 const STEPS = [
-  { size: 1, label: 'Day' },
   { size: 7, label: 'Week' },
   { size: 30, label: 'Month' },
 ]
@@ -90,6 +82,10 @@ function dateValue(time: number): string {
   return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}`
 }
 
+// Only the years of one run of a season: "2025–26", or "2026".
+function yearsOf(run: Season): string {
+  return run.label.replace(`${run.season} `, '')
+}
 function dayMonth(time: number): string {
   return new Date(time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
@@ -151,13 +147,25 @@ function buildColumns(
   })
 }
 
-function Legend({ series }: { series: Series[] }) {
+function Legend({
+  series,
+  varieties = {},
+}: {
+  series: Series[]
+  // Each crop's varieties, listed when its name is pointed at.
+  varieties?: Record<string, Record<string, number>>
+}) {
   return (
     <ul className="legend below">
       {series.map((item) => (
-        <li key={item.name}>
+        <li
+          key={item.name}
+          className={varieties[item.name] ? 'has-tip' : undefined}
+          tabIndex={varieties[item.name] ? 0 : undefined}
+        >
           <i style={{ background: item.color }} />
           <span>{item.name}</span>
+          <VarietyTip varieties={varieties[item.name]} />
         </li>
       ))}
     </ul>
@@ -185,67 +193,99 @@ function Dashboard() {
   const [live, setLive] = useState(liveChosen)
   const draftReady = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo
   const draftChanged = draftFrom !== from || draftTo !== to
+  // The season chosen, by name ("Rabi"), and which year of it: the first
+  // day of that run ("2025-10-15"), its days then in `from` and `to`. No
+  // year means every year at once: the chart runs over all time, and only
+  // that season's entries are counted.
+  const [season, setSeason] = useState<string | null>(null)
+  const [seasonYear, setSeasonYear] = useState<string | null>(null)
   const custom = days === CUSTOM
+  const oneYear = days === SEASON && seasonYear !== null
+  // Picked days, or one year's season: kept to exactly those days.
+  const ranged = custom || oneYear
+  // All time, or a season over all time.
+  const everything = days === ALL || (days === SEASON && seasonYear === null)
   // Both days are there and in the right order.
   const picked = from !== '' && to !== '' && from <= to
   // "All time" is chosen, but what it covers is still being asked. Any
   // answer says when the first and latest entries came in, so a week is
   // asked for.
-  const finding = days === ALL && whole === null
+  const finding = everything && whole === null
 
   // The last day shown: today, the last day picked, or for "All time" the
   // day of the latest entry, so the chart does not trail off into months
   // with nothing in them.
-  const end = custom
+  const end = ranged
     ? picked
       ? dayOf(to)
       : startOfDay(now)
-    : days === ALL && whole
+    : everything && whole
       ? whole.last
       : startOfDay(now)
   // How many days to show: the number chosen, every day picked, or for
   // "All time" every day from the first entry to the latest.
-  const wanted = custom
+  const wanted = ranged
     ? picked
       ? Math.round((dayOf(to) - dayOf(from)) / DAY) + 1
       : 7
-    : days !== ALL
+    : !everything
       ? days
       : whole === null
         ? 7
         : Math.round((whole.last - whole.first) / DAY) + 1
   const fitting =
-    days === ALL || custom
+    everything || ranged
       ? (COLUMN_DAYS.find((length) => wanted / length <= MOST_COLUMNS) ?? 365)
-      : days > 30
-        ? 7
-        : 1
-  // A size fits when a column is no longer than the period, and there are
-  // not too many columns to draw.
+      : 7
+  // A size fits when a column is no longer than the period (a week always
+  // fits: it is the smallest), and there are not too many columns to draw.
   const fits = (length: number) =>
-    length <= Math.max(wanted, 1) && Math.ceil(wanted / length) <= MOST_DRAWN
+    length <= Math.max(wanted, 7) && Math.ceil(wanted / length) <= MOST_DRAWN
   const steps = STEPS.map((choice) => ({ ...choice, fits: fits(choice.size) }))
   // A picked size that no longer fits the period gives way to the fitting one.
   const size = step !== null && fits(step) ? step : fitting
   // Drawn in whole columns, so the 90 day view covers 91 days. Picked days
   // are kept exactly: the last column is cut short instead.
-  const span = custom ? wanted : Math.ceil(wanted / size) * size
+  const span = ranged ? wanted : Math.ceil(wanted / size) * size
   const start = end - (span - 1) * DAY
   const since = encodeURIComponent(new Date(start).toISOString())
   // How far the office's clock is ahead of UTC, for the busy-hours chart.
   const tz = -now.getTimezoneOffset()
 
+  // Only this season's entries, in every year, when "All years" is chosen.
+  const seasonShown = days === SEASON && season && seasonYear === null ? season : null
+  const only = seasonShown ? `&season=${encodeURIComponent(seasonShown)}` : ''
+
   // Everything on this page comes in this one answer.
-  const stats = useApi<Stats>(`/stats?start=${since}&days=${span}&size=${size}&tz=${tz}`, {
-    every: live ? LIVE_EVERY : undefined,
-  })
+  const stats = useApi<Stats>(
+    `/stats?start=${since}&days=${span}&size=${size}&tz=${tz}${only}`,
+    { every: live ? LIVE_EVERY : undefined },
+  )
+  // Every year of every season up to today, newest first, for the menus.
+  const seasons = useApi<Season[]>(`/seasons?tz=${tz}`)
+  const runs = (seasons.data ?? []).filter((one) => one.season === season)
+  // The year of the season on screen, if one is chosen.
+  const run = oneYear ? runs.find((one) => one.start === seasonYear) : undefined
+
   // How the period is named on the page.
-  const period = custom
-    ? `${dayMonthYear(start)} to ${dayMonthYear(end)}`
-    : days === ALL
-      ? 'all time'
-      : `last ${days} days`
-  const during = custom ? `from ${period}` : days === ALL ? 'in all' : `during the ${period}`
+  const period = run
+    ? run.label
+    : seasonShown
+      ? `${seasonShown}, all years`
+      : ranged
+        ? `${dayMonthYear(start)} to ${dayMonthYear(end)}`
+        : days === ALL
+          ? 'all time'
+          : `last ${days} days`
+  const during = run
+    ? `in ${run.label}`
+    : seasonShown
+    ? `in ${seasonShown}`
+    : ranged
+      ? `from ${period}`
+      : days === ALL
+        ? 'in all'
+        : `during the ${period}`
 
   const today = now.toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -274,7 +314,7 @@ function Dashboard() {
   // A newer entry came in since (Live, or a refresh): "All time" now reaches
   // on to its day, so it shows up. Any answer knows the newest entry.
   const newest = answer?.last ? startOfDay(new Date(answer.last)) : 0
-  if (days === ALL && whole && newest > whole.last) {
+  if (everything && whole && newest > whole.last) {
     setWhole({ ...whole, last: newest })
   }
 
@@ -290,8 +330,8 @@ function Dashboard() {
           steps,
           onStep: setStep,
           allTime: days === ALL,
-          endsToday: end >= startOfDay(now),
-          length: custom ? span : days,
+          season: seasonShown,
+          length: ranged ? span : days,
           period,
           during,
         }
@@ -303,7 +343,8 @@ function Dashboard() {
       held.stats !== view.stats ||
       held.start !== view.start ||
       held.end !== view.end ||
-      held.size !== view.size)
+      held.size !== view.size ||
+      held.season !== view.season)
   ) {
     setHeld(view)
   }
@@ -315,7 +356,7 @@ function Dashboard() {
     ready && stats.data ? stats.data.columns.reduce((n, column) => n + columnTotal(column), 0) : -1
   useEffect(() => {
     if (entriesNow < 0) return
-    const key = `${since}|${span}|${size}`
+    const key = `${since}|${span}|${size}|${only}`
     const before = counted.current
     if (before && before.key === key && entriesNow > before.entries) {
       const more = entriesNow - before.entries
@@ -325,19 +366,78 @@ function Dashboard() {
       )
     }
     counted.current = { key, entries: entriesNow }
-  }, [entriesNow, since, span, size])
+  }, [entriesNow, since, span, size, only])
 
   function choose(next: number) {
     // Looked up afresh each time, in case entries were imported since.
-    if (next === ALL) setWhole(null)
+    if (next === ALL || next === SEASON) setWhole(null)
     // "Custom" starts on what is showing now, ready to be narrowed down.
-    if (next === CUSTOM && !picked) {
+    if (next === CUSTOM) {
       setFrom(dateValue(start))
       setTo(dateValue(end))
       setDraftFrom(dateValue(start))
       setDraftTo(dateValue(end))
     }
     setDays(next)
+  }
+
+  // One year of a season: its days, cut at today while it is running. One
+  // that has not begun yet shows all its days, empty.
+  function showYear(one: Season) {
+    const today = startOfDay(now)
+    const last = dayOf(one.end)
+    setSeason(one.season)
+    setSeasonYear(one.start)
+    setFrom(one.start)
+    setTo(dateValue(dayOf(one.start) > today ? last : Math.min(last, today)))
+    setDays(SEASON)
+  }
+
+  // A season in every year at once.
+  function showAllYears(name: string) {
+    setSeason(name)
+    setSeasonYear(null)
+    choose(SEASON)
+  }
+
+  // The season whose years are listed under its button, and where that
+  // button starts, from the left of the row.
+  const [menu, setMenu] = useState<{ name: string; left: number } | null>(null)
+  const menuBox = useRef<HTMLDivElement>(null)
+
+  // A click anywhere else, or Escape, closes the list.
+  useEffect(() => {
+    if (!menu) return
+    function onDown(event: PointerEvent) {
+      const target = event.target as Element
+      if (menuBox.current?.contains(target) || target.closest('.season-button')) return
+      setMenu(null)
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenu(null)
+    }
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  // A season's button shows its latest year that had entries (or every year,
+  // when none had) and lists its years under it. Pressed again, it opens or
+  // closes the list.
+  function chooseSeason(name: string, button: HTMLButtonElement) {
+    const row = button.closest('.period-controls')
+    const left = row ? button.getBoundingClientRect().left - row.getBoundingClientRect().left : 0
+    if (days === SEASON && season === name) {
+      setMenu(menu?.name === name ? null : { name, left })
+      return
+    }
+    const latest = (seasons.data ?? []).find((one) => one.season === name && one.entries > 0)
+    if (latest) showYear(latest)
+    else showAllYears(name)
+    setMenu({ name, left })
   }
 
   function apply(event: SyntheticEvent) {
@@ -363,7 +463,7 @@ function Dashboard() {
         {canEdit() && (
           <Link className="button" to="/barcode?new=1">
             <PlusIcon />
-            Add a seed lot
+            Add a seed variety
           </Link>
         )}
       </PageHeader>
@@ -372,22 +472,112 @@ function Dashboard() {
         {stats.error && !shown ? (
           <p className="problem">{stats.error}</p>
         ) : !shown ? (
-          <PageSkeleton tiles={4} />
+          <PageSkeleton tiles={3} />
         ) : (
           <>
             <div className="filters-row">
-              <div className="range" role="group" aria-label="Time period">
-                {RANGES.map((range) => (
+              <div className="period-controls">
+                <div className="range" role="group" aria-label="Time period">
                   <button
-                    key={range.days}
                     type="button"
-                    className={range.days === days ? 'on' : ''}
-                    aria-pressed={range.days === days}
-                    onClick={() => choose(range.days)}
+                    className={days === ALL ? 'on' : ''}
+                    aria-pressed={days === ALL}
+                    onClick={() => choose(ALL)}
                   >
-                    {range.label}
+                    All time
                   </button>
-                ))}
+                  {/* Each season, with its years in a list under it. The
+                      dates are set on the server. */}
+                  {SEASON_ORDER.map((name) => {
+                    const on = days === SEASON && season === name
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        className={on ? 'on season-button' : 'season-button'}
+                        aria-pressed={on}
+                        aria-haspopup="menu"
+                        aria-expanded={menu?.name === name}
+                        onClick={(event) => chooseSeason(name, event.currentTarget)}
+                      >
+                        {name}
+                        {on && (
+                          <span className="season-year">
+                            {run ? yearsOf(run) : 'All years'}
+                          </span>
+                        )}
+                        <span className="season-caret" aria-hidden="true">
+                          <ChevronRightIcon />
+                        </span>
+                      </button>
+                    )
+                  })}
+                  <button
+                    type="button"
+                    className={custom ? 'on' : ''}
+                    aria-pressed={custom}
+                    onClick={() => choose(CUSTOM)}
+                  >
+                    Custom
+                  </button>
+                </div>
+
+                {/* The season's years, opened under its button: every year
+                    together first, then each year. Outside the row of
+                    buttons, which cuts off whatever reaches past it. */}
+                {menu && (
+                  <div
+                    ref={menuBox}
+                    className="season-menu"
+                    role="menu"
+                    aria-label={`${menu.name} seasons`}
+                    style={{ left: menu.left }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={season === menu.name && seasonShown !== null}
+                      className={season === menu.name && seasonShown !== null ? 'on' : ''}
+                      onClick={() => {
+                        showAllYears(menu.name)
+                        setMenu(null)
+                      }}
+                    >
+                      <span>All years</span>
+                      <small>
+                        {(seasons.data ?? [])
+                          .filter((one) => one.season === menu.name)
+                          .reduce((n, one) => n + one.entries, 0)
+                          .toLocaleString('en-IN')}{' '}
+                        entries
+                      </small>
+                    </button>
+                    {(seasons.data ?? [])
+                      .filter((one) => one.season === menu.name)
+                      .map((one) => {
+                        const current = run?.start === one.start
+                        return (
+                          <button
+                            key={one.start}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={current}
+                            className={current ? 'on' : ''}
+                            onClick={() => {
+                              showYear(one)
+                              setMenu(null)
+                            }}
+                          >
+                            <span>{yearsOf(one)}</span>
+                            <small>
+                              {one.entries.toLocaleString('en-IN')}{' '}
+                              {one.entries === 1 ? 'entry' : 'entries'}
+                            </small>
+                          </button>
+                        )
+                      })}
+                  </div>
+                )}
               </div>
 
               <div className="live-controls">
@@ -466,8 +656,8 @@ type OverviewProps = {
   steps: { size: number; label: string; fits: boolean }[]
   onStep: (size: number) => void
   allTime: boolean
-  // True when the period runs up to today.
-  endsToday: boolean
+  // The season shown, in every year, or null.
+  season: string | null
   // How many days the period has, for comparing with the days before it.
   length: number
   // The period's name ("last 30 days"), and the words for "in it".
@@ -485,7 +675,7 @@ function Overview({
   steps,
   onStep,
   allTime,
-  endsToday,
+  season,
   length,
   period,
   during,
@@ -494,26 +684,13 @@ function Overview({
   const crops = cropSeries(stats.series)
   const cropParts = crops.split(sum(stats.columns))
   const current = total(cropParts)
-  const kpis = stats.kpis
   const lots = stats.lots
-  const first = stats.first ? dayMonthYear(new Date(stats.first).getTime()) : ''
-  const last = stats.last ? dayMonthYear(new Date(stats.last).getTime()) : ''
   const channelRows: BarRow[] = stats.channels.map((channel) => ({
-    name: channel.name,
+    // Capital first letters, like the latest entries beside them.
+    name: channel.name === 'Not given' ? channel.name : titleCase(channel.name),
     parts: crops.split(channel.counts),
   }))
   const columns = buildColumns(stats.columns, start, end, size, crops.split)
-  const found = insights({
-    stats,
-    parts: cropParts,
-    current,
-    allTime,
-    days: Math.max(1, Math.round((end - start) / DAY) + 1),
-    columnName: columnName(size),
-    columnNames: columns.map((column) => column.name),
-    endsToday,
-    period,
-  })
 
   return (
     <div className={`overview${stale ? ' stale' : ''}`} aria-busy={stale}>
@@ -527,32 +704,12 @@ function Overview({
           <p className="stat-value">
             <CountUp value={current} />
           </p>
-          {allTime ? (
-            // Nothing came before all time, so there is nothing to compare.
-            <p className="stat-note">
-              {first ? (first === last ? `on ${first}` : `${first} to ${last}`) : 'none yet'}
-            </p>
-          ) : (
+          {/* Nothing came before all time, so there is nothing to compare;
+              a season over every year has no "days before" either. */}
+          {!allTime && !season && (
             <Change now={current} before={stats.previous} days={length} />
           )}
           <Sparkline values={stats.columns.map(columnTotal)} />
-        </Link>
-
-        <Link className="card stat solid plum" to="/users" title="See the farmer entries">
-          <span className="stat-icon" aria-hidden="true">
-            <UsersIcon />
-          </span>
-          <p className="stat-label">Farmers reached</p>
-          <p className="stat-value">
-            <CountUp value={kpis.farmers} />
-          </p>
-          <p className="stat-note">
-            {kpis.farmers === 0
-              ? 'counted by mobile number'
-              : kpis.repeatFarmers > 0
-                ? `${kpis.repeatFarmers.toLocaleString('en-IN')} numbers on more than one entry`
-                : 'every mobile number different'}
-          </p>
         </Link>
 
         <Link className="card stat solid green" to="/barcode" title="See the seed lots">
@@ -562,7 +719,7 @@ function Overview({
           {/* For a period: the lots farmers' entries were for in it. Not the
               lots made in it: an import makes its lots on the day of the
               import, long after the entries in it came in. */}
-          <p className="stat-label">{allTime ? 'Seed lots' : 'Seed lots with entries'}</p>
+          <p className="stat-label">{allTime ? 'Seed Varieties' : 'Seed Varieties with entries'}</p>
           <p className="stat-value">
             <CountUp value={allTime ? lots.total : stats.lotCount} />
           </p>
@@ -571,7 +728,7 @@ function Overview({
               ? lots.total === 0
                 ? 'none yet'
                 : lots.unused === 0
-                  ? 'every lot has farmer entries'
+                  ? 'Every variety has farmer entries'
                   : `${lots.unused.toLocaleString('en-IN')} with no entries yet`
               : stats.lotCount === 0
                 ? 'none in this period'
@@ -592,15 +749,10 @@ function Overview({
               busiest channels further down has the names. */}
           <p className="stat-note">
             {channelRows[0]
-              ? `busiest one has ${total(channelRows[0].parts).toLocaleString('en-IN')} entries`
+              ? `Busiest one has ${total(channelRows[0].parts).toLocaleString('en-IN')} entries`
               : 'none in this period'}
           </p>
         </a>
-      </div>
-
-      <div className="split wide">
-        <Insights items={found} />
-        <Quality kpis={kpis} current={current} />
       </div>
 
       <div className="split wide">
@@ -632,7 +784,7 @@ function Overview({
           <div className="card-body">
             <ColumnChart columns={columns} unit={['entry', 'entries']} />
             {/* Under the chart, so the bars come first. */}
-            <Legend series={cropParts} />
+            <Legend series={cropParts} varieties={stats.varieties} />
           </div>
         </section>
 
@@ -649,29 +801,29 @@ function Overview({
                 parts={cropParts}
                 unit={['entry', 'entries']}
                 label={`Share of farmer entries by ${stats.by}`}
+                varieties={stats.varieties}
               />
             </div>
           )}
         </section>
       </div>
 
-      {stats.heatmap.length === 7 && (
-        <section className="card">
-          <div className="card-head">
-            <h2>When farmers fill in the form</h2>
-            <p>By day of the week and hour, {period}</p>
-          </div>
-          <div className="card-body">
-            <Heatmap counts={stats.heatmap} />
-          </div>
-        </section>
-      )}
-
-      <div className="split">
+      <div className="split even">
         <section className="card" id="channels">
           <div className="card-head">
             <h2>Busiest distribution channels</h2>
-            <p>{period}</p>
+            {/* Every channel of the same period, on a page of its own. */}
+            <Link
+              to={
+                season
+                  ? `/channels?season=${encodeURIComponent(season)}`
+                  : allTime
+                    ? '/channels'
+                    : `/channels?from=${dateValue(start)}&to=${dateValue(end)}`
+              }
+            >
+              See all
+            </Link>
           </div>
           {current === 0 ? (
             <p className="empty">No entries in this period.</p>
@@ -714,107 +866,6 @@ function Overview({
   )
 }
 
-const INSIGHT_ICONS = {
-  up: TrendUpIcon,
-  down: TrendDownIcon,
-  warn: AlertIcon,
-  info: SparkIcon,
-}
-
-const FIRST_INSIGHTS = 5
-
-// What the numbers say, written out: things to check and changes first.
-function Insights({ items }: { items: Insight[] }) {
-  const [all, setAll] = useState(false)
-  const shown = all ? items : items.slice(0, FIRST_INSIGHTS)
-  return (
-    <section className="card insights">
-      <div className="card-head">
-        <h2 className="with-icon">
-          <SparkIcon /> Insights
-        </h2>
-        <p>Worked out from the numbers on this page</p>
-      </div>
-      <ul className="insight-list">
-        {shown.map((item, index) => {
-          const Icon = INSIGHT_ICONS[item.tone]
-          return (
-            <li
-              key={item.key}
-              className={`insight ${item.tone}`}
-              style={{ animationDelay: `${index * 70}ms` }}
-            >
-              <span className="insight-icon" aria-hidden="true">
-                <Icon />
-              </span>
-              <div>
-                <strong>{item.title}</strong>
-                <p>{item.text}</p>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-      {items.length > FIRST_INSIGHTS && (
-        <div className="card-foot">
-          <button type="button" className="link-button" onClick={() => setAll(!all)}>
-            {all ? 'Show fewer' : `Show ${items.length - FIRST_INSIGHTS} more`}
-          </button>
-        </div>
-      )}
-    </section>
-  )
-}
-
-// How complete the entries are: the details the office relies on later.
-function Quality({ kpis, current }: { kpis: Stats['kpis']; current: number }) {
-  const rows = [
-    { label: 'Mobile number given', value: kpis.withContact },
-    { label: 'ID number given', value: kpis.withId },
-    { label: 'Filled in by a field officer', value: kpis.byOfficer },
-  ]
-  return (
-    <section className="card">
-      <div className="card-head">
-        <h2>What the entries contain</h2>
-        <p>Share of entries in the period</p>
-      </div>
-      <div className="card-body meters">
-        {rows.map((row) => {
-          const share = current > 0 ? Math.round((row.value / current) * 100) : 0
-          return (
-            <div key={row.label} className="meter">
-              <div className="meter-label">
-                <span>{row.label}</span>
-                <strong>{share}%</strong>
-              </div>
-              <span
-                className="meter-track"
-                role="meter"
-                aria-label={row.label}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={share}
-              >
-                <span style={{ width: `${share}%` }} />
-              </span>
-              <span className="meter-note">
-                {row.value.toLocaleString('en-IN')} of {current.toLocaleString('en-IN')}
-              </span>
-            </div>
-          )
-        })}
-        <p className="meter-foot">
-          <PhoneIcon />
-          {kpis.devices === 0
-            ? 'No phones recorded yet.'
-            : `${kpis.devices.toLocaleString('en-IN')} different ${kpis.devices === 1 ? 'phone' : 'phones'} sent these entries.`}
-        </p>
-      </div>
-    </section>
-  )
-}
-
 // The newest entries of the period. Rows that arrived since the last look
 // light up for a moment.
 function Latest({
@@ -850,7 +901,7 @@ function Latest({
         <p className="empty">
           <strong>{empty}</strong>
           {noLots
-            ? 'Add a seed lot and print its QR code to get started.'
+            ? 'Add a seed variety and print its QR code to get started.'
             : 'Entries appear here when a farmer scans a bag and submits the form.'}
         </p>
       ) : (
@@ -869,9 +920,11 @@ function Latest({
                 const received = new Date(e.receivedAt).getTime()
                 return (
                   <tr key={e.id} className={last.fresh.has(e.id) ? 'fresh' : ''}>
-                    <td className="strong">{e.farmerName}</td>
-                    <td>{e.crop}</td>
-                    <td>{e.quantity}</td>
+                    {/* Written the same way however they were typed:
+                        "Hari Narayan Singh", "Moong", "2 kg". */}
+                    <td className="strong">{titleCase(e.farmerName)}</td>
+                    <td>{titleCase(e.crop)}</td>
+                    <td>{tidyQuantity(e.quantity)}</td>
                     <td title={formatDateTime(e.receivedAt)}>
                       {clock - received < DAY ? ago(received, clock) : formatDateTime(e.receivedAt)}
                     </td>
