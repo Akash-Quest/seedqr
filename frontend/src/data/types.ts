@@ -159,6 +159,14 @@ export type StaffAccount = {
   createdAt: string
 }
 
+// Whether a date box holds a whole, real day. While someone types the
+// year it passes through "0002", "0020" and "0202"; those are never used.
+// The years are the ones the server accepts (backend/app/schemas.py).
+export function usableDay(value: string): boolean {
+  const year = Number(value.slice(0, 4))
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && year >= 1970 && year <= 2200
+}
+
 export function formatDate(iso: string): string {
   if (!iso) return ''
   const date = new Date(iso.length === 10 ? iso + 'T00:00:00' : iso)

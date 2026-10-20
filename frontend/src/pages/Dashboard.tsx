@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import type { SyntheticEvent } from 'react'
 import { Link } from 'react-router-dom'
 import BarList from '../components/BarList'
@@ -13,6 +13,7 @@ import {
   PhoneIcon,
   PlusIcon,
   QrIcon,
+  MapIcon,
   RefreshIcon,
 } from '../components/Icons'
 import PageHeader from '../components/PageHeader'
@@ -25,7 +26,7 @@ import { tidyQuantity, titleCase } from '../data/text'
 import { cropSeries, sum, total } from '../data/series'
 import type { Part, Series } from '../data/series'
 import { toast } from '../data/toast'
-import { formatDateTime } from '../data/types'
+import { formatDateTime, usableDay } from '../data/types'
 import type { CropCounts, Season, Stats } from '../data/types'
 
 // Stand for "All time" and "Custom" where the others give a number of days.
@@ -40,6 +41,11 @@ const SEASON = -2
 const SEASON_ORDER = ['Rabi', 'Kharif', 'Garma']
 
 const DAY = 86_400_000
+
+// The map of channels: its code and its outline of Bihar are fetched only
+// when it is opened (or about to be).
+const ChannelMap = lazy(() => import('../components/ChannelMap'))
+const warmMap = () => void import('../components/ChannelMap')
 // How many days one chart column may cover: a week at least. "All time"
 // takes the smallest that keeps the chart to about a month's worth of
 // columns.
@@ -172,6 +178,19 @@ function Legend({
   )
 }
 
+// What the map asks for: every channel's entries in the period on screen,
+// asked the same way as the Channels page.
+function channelsPath(view: OverviewProps): string {
+  if (view.season) {
+    return `/channels?season=${encodeURIComponent(view.season)}&tz=${-new Date().getTimezoneOffset()}`
+  }
+  if (view.allTime) return '/channels'
+  return (
+    `/channels?from=${encodeURIComponent(new Date(view.start).toISOString())}` +
+    `&to=${encodeURIComponent(new Date(view.end + DAY).toISOString())}`
+  )
+}
+
 function Dashboard() {
   // Moves on each minute, so a dashboard left open past midnight shows the
   // new day.
@@ -191,7 +210,8 @@ function Dashboard() {
   const [draftFrom, setDraftFrom] = useState('')
   const [draftTo, setDraftTo] = useState('')
   const [live, setLive] = useState(liveChosen)
-  const draftReady = draftFrom !== '' && draftTo !== '' && draftFrom <= draftTo
+  const [mapOpen, setMapOpen] = useState(false)
+  const draftReady = usableDay(draftFrom) && usableDay(draftTo) && draftFrom <= draftTo
   const draftChanged = draftFrom !== from || draftTo !== to
   // The season chosen, by name ("Rabi"), and which year of it: the first
   // day of that run ("2025-10-15"), its days then in `from` and `to`. No
@@ -583,6 +603,16 @@ function Dashboard() {
               <div className="live-controls">
                 <button
                   type="button"
+                  className="map-button"
+                  onPointerEnter={warmMap}
+                  onFocus={warmMap}
+                  onClick={() => setMapOpen(true)}
+                >
+                  <MapIcon />
+                  Map view
+                </button>
+                <button
+                  type="button"
                   className={`live-toggle${live ? ' on' : ''}`}
                   aria-pressed={live}
                   title={
@@ -637,7 +667,17 @@ function Dashboard() {
 
             {stats.error && <p className="problem">{stats.error}</p>}
 
-            <Overview {...shown} stale={!view} />
+            <Overview {...shown} stale={!view} onMap={() => setMapOpen(true)} />
+
+            {mapOpen && (
+              <Suspense fallback={null}>
+                <ChannelMap
+                  path={channelsPath(shown)}
+                  period={shown.period}
+                  onClose={() => setMapOpen(false)}
+                />
+              </Suspense>
+            )}
           </>
         )}
       </div>
@@ -665,6 +705,8 @@ type OverviewProps = {
   during: string
   // Numbers of an earlier period, shown dimmed while the new ones load.
   stale?: boolean
+  // Opens the map of channels for the same period.
+  onMap?: () => void
 }
 
 function Overview({
@@ -680,6 +722,7 @@ function Overview({
   period,
   during,
   stale = false,
+  onMap,
 }: OverviewProps) {
   const crops = cropSeries(stats.series)
   const cropParts = crops.split(sum(stats.columns))
@@ -812,6 +855,16 @@ function Overview({
         <section className="card" id="channels">
           <div className="card-head">
             <h2>Busiest distribution channels</h2>
+            {onMap && (
+              <button
+                type="button"
+                className="link-button map-link"
+                onPointerEnter={warmMap}
+                onClick={onMap}
+              >
+                <MapIcon /> Map
+              </button>
+            )}
             {/* Every channel of the same period, on a page of its own. */}
             <Link
               to={

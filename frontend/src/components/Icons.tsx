@@ -256,3 +256,13 @@ export function WifiOffIcon() {
     </Icon>
   )
 }
+
+// A folded map with a pin: where things are.
+export function MapIcon() {
+  return (
+    <Icon>
+      <path d="M9 4.5L3.5 6.5v13L9 17.5l6 2 5.5-2v-13L15 6.5z" />
+      <path d="M9 4.5v13M15 6.5v13" />
+    </Icon>
+  )
+}

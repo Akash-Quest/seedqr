@@ -12,7 +12,7 @@ phone / browser ──https──> nginx (host, port 443) ──> app container 
 |---|---|
 | Code and settings | `/opt/seedcode` (settings in `/opt/seedcode/.env`, readable by root only) |
 | nginx site | `/etc/nginx/conf.d/seedcode.conf` (a copy of `deploy/nginx-seedcode.conf`) |
-| Certificate | `/etc/letsencrypt/live/seed.skyquestinsights.com/` (certbot; renewed by `seedcode-cert.timer`, which touches only this certificate) |
+| Certificate | `/etc/letsencrypt/live/seed.skyquestinsights.com/` (certbot; renewed with every site's by `certbot-renew.timer`, and by `seedcode-cert.timer` as a backstop) |
 | Database files | Docker volume `seedcode_db-data` |
 | Nightly backups | `/var/backups/seedcode`, 7 days kept, by `seedcode-backup.timer` |
 
@@ -61,6 +61,10 @@ docker compose up -d
    `deploy/seedcode-cert.*` to `/etc/systemd/system/`, then
    `systemctl daemon-reload && systemctl enable --now seedcode-backup.timer seedcode-cert.timer`.
 
+Certificates for every site on the server are renewed by `certbot-renew.timer`
+(switched on 20 Oct 2026); `/etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh`
+makes nginx load each renewed certificate.
+
 ## Still worth doing
 
 - **Disk.** The server's 8 GB disk was 97% full before SeedCode arrived.
@@ -68,9 +72,9 @@ docker compose up -d
   then, keep an eye on `df -h /`.
 - **Backups off the server.** Copy `/var/backups/seedcode` to an encrypted
   S3 bucket. The copies hold farmers' ID numbers.
-- **The other sites' certificates.** The server-wide `certbot-renew.timer`
-  is switched off, so their certificates are not renewed by themselves (on
-  15 Oct 2026 one had already expired and three had 25 days left).
-  `systemctl enable --now certbot-renew.timer` renews them all.
+- **The retired shambamap certificate.** `shambamap.skyquestinsights.com`
+  no longer exists in DNS and no site uses its certificate, so every renewal
+  run reports it as failed. Once that name is surely retired:
+  `certbot delete --cert-name shambamap.skyquestinsights.com`.
 - **Error alerts.** Nothing yet tells anyone when the site fails; an uptime
   check on `https://seed.skyquestinsights.com/api/health` is the simplest start.

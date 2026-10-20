@@ -18,7 +18,7 @@ import { toast } from '../data/toast'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { tidyQuantity, titleCase } from '../data/text'
-import { formatDate, formatDateTime } from '../data/types'
+import { formatDate, formatDateTime, usableDay } from '../data/types'
 import type { EntryPage, ReceivedEntry } from '../data/types'
 
 function documentType(e: ReceivedEntry): string {
@@ -200,16 +200,22 @@ function Users() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The days are the ones on this computer's clock.
+  // The days are the ones on this computer's clock. A day still being
+  // typed is left out until it is whole.
   const filters: Filters = {
     q: needle,
-    from: from ? dayStart(from) : '',
-    to: to ? dayStart(to, 1) : '',
+    from: usableDay(from) ? dayStart(from) : '',
+    to: usableDay(to) ? dayStart(to, 1) : '',
   }
   const search = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
   for (const [name, value] of Object.entries(filters)) if (value) search.set(name, value)
 
-  const { data, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
+  const { data: answer, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
+  // The last list that arrived stays on screen, with the search and dates
+  // above it, even when a request fails: the message shows above it instead.
+  const [held, setHeld] = useState<EntryPage | undefined>(undefined)
+  if (answer && answer !== held) setHeld(answer)
+  const data = answer ?? held
   const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
   const editing = editId ? data?.items.find((e) => e.id === editId) : undefined
 
@@ -251,7 +257,7 @@ function Users() {
   return (
     <>
       <PageHeader
-        title="Users"
+        title="Farmers"
         subtitle="Farmers who scanned a seed bag and filled in the form."
       >
         <button type="button" className="secondary" onClick={reload}>
@@ -294,10 +300,13 @@ function Users() {
             onClose={() => setImporting(false)}
           />
         )}
-        {error ? (
-          <p className="problem">{error}</p>
-        ) : !data ? (
-          <PageSkeleton />
+        {error && (
+          <p className="problem" role="alert">
+            {error}
+          </p>
+        )}
+        {!data ? (
+          !error && <PageSkeleton />
         ) : (
           <section
             className={`card entries-card${loading || !fresh ? ' stale' : ''}`}
