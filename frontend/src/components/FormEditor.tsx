@@ -15,7 +15,7 @@ type FormEditorProps = {
 
 const BUILTIN_KIND: Record<string, string> = {
   choice: 'Farmer or field officer',
-  kyc: 'Aadhaar, PAN or other',
+  kyc: 'PAN or other',
   phone: 'Mobile number',
   channel: 'List of channels',
   date: 'Date',

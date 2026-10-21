@@ -109,6 +109,18 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
 // Rows on one page of the table.
 const PAGE_SIZE = 100
 
+// The years the server accepts (see EARLIEST_YEAR in backend/app/schemas.py).
+const FIRST_YEAR = 1970
+const LAST_YEAR = 2200
+
+// A date box's day, if it is a whole one. While a year is typed digit by
+// digit the box holds 0002, 0020, 0202 on the way to 2026; those are left
+// out until the year is complete, instead of being sent and refused.
+function wholeDay(day: string): string {
+  const year = Number(day.slice(0, 4))
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && year >= FIRST_YEAR && year <= LAST_YEAR ? day : ''
+}
+
 // The start of a day (YYYY-MM-DD) on this computer's clock, as the exact
 // time the server understands. `add` moves it on by that many days.
 function dayStart(day: string, add = 0): string {
@@ -203,14 +215,17 @@ function Users() {
   // The days are the ones on this computer's clock.
   const filters: Filters = {
     q: needle,
-    from: from ? dayStart(from) : '',
-    to: to ? dayStart(to, 1) : '',
+    from: wholeDay(from) ? dayStart(from) : '',
+    to: wholeDay(to) ? dayStart(to, 1) : '',
   }
   const search = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
   for (const [name, value] of Object.entries(filters)) if (value) search.set(name, value)
 
   const { data, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
   const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
+  // The Document column follows the form: shown only while the office asks
+  // farmers for a document. Older entries keep theirs in the Excel file.
+  const showDocument = !forms.farmer.find((field) => field.key === 'kycType')?.hidden
   const editing = editId ? data?.items.find((e) => e.id === editId) : undefined
 
   const shown = data?.items ?? []
@@ -251,7 +266,7 @@ function Users() {
   return (
     <>
       <PageHeader
-        title="Users"
+        title="Farmers"
         subtitle="Farmers who scanned a seed bag and filled in the form."
       >
         <button type="button" className="secondary" onClick={reload}>
@@ -319,7 +334,8 @@ function Users() {
                 <input
                   type="date"
                   value={from}
-                  max={to || undefined}
+                  min={`${FIRST_YEAR}-01-01`}
+                  max={wholeDay(to) || `${LAST_YEAR}-12-31`}
                   onChange={(e) => {
                     setFrom(e.target.value)
                     setPage(1)
@@ -331,7 +347,8 @@ function Users() {
                 <input
                   type="date"
                   value={to}
-                  min={from || undefined}
+                  min={wholeDay(from) || `${FIRST_YEAR}-01-01`}
+                  max={`${LAST_YEAR}-12-31`}
                   onChange={(e) => {
                     setTo(e.target.value)
                     setPage(1)
@@ -419,7 +436,7 @@ function Users() {
                       <th>Farmer</th>
                       <th>Date</th>
                       <th>Contact</th>
-                      <th>Document</th>
+                      {showDocument && <th>Document</th>}
                       <th>Seed</th>
                       <th>Batch/lot</th>
                       <th>Quantity</th>
@@ -452,12 +469,14 @@ function Users() {
                         </td>
                         <td>{formatDate(e.date ?? '')}</td>
                         <td className="mono">{e.contact}</td>
-                        <td>
-                          {documentType(e)}
-                          {e.idNumber && (
-                            <span className="mono"> {shortened(e.idNumber)}</span>
-                          )}
-                        </td>
+                        {showDocument && (
+                          <td>
+                            {documentType(e)}
+                            {e.idNumber && (
+                              <span className="mono"> {shortened(e.idNumber)}</span>
+                            )}
+                          </td>
+                        )}
                         {/* Varieties hold codes ("DBW-187"), so stay as typed. */}
                         <td>{e.lot ? `${titleCase(e.lot.crop)}, ${e.lot.variety}` : ''}</td>
                         <td className="mono">{e.lot?.batchNo}</td>
@@ -528,7 +547,7 @@ function Users() {
                       </tr>
                       {openId === e.id && (
                         <tr className="detail-row">
-                          <td colSpan={13}>
+                          <td colSpan={showDocument ? 13 : 12}>
                             {e.updatedAt && (
                               <p className="muted gap-below">
                                 Corrected in the office by {e.updatedBy || 'staff'} on{' '}

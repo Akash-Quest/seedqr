@@ -73,8 +73,9 @@ export const DEFAULT_FORMS: Forms = {
     builtin('date', 'Date', 'date'),
     builtin('filledBy', 'Who is filling this in?', 'choice', { options: ['Farmer', 'Field officer'] }),
     builtin('farmerName', 'Farmer name', 'text', { core: true }),
-    builtin('kycType', 'Document / KYC type', 'kyc', { required: false }),
-    builtin('idNumber', 'ID number', 'text', { required: false }),
+    // Not asked for (see backend/app/forms.py); the office can show them again.
+    builtin('kycType', 'Document / KYC type', 'kyc', { required: false, hidden: true }),
+    builtin('idNumber', 'ID number', 'text', { required: false, hidden: true }),
     builtin('contact', 'Contact number', 'phone', { required: false }),
     builtin('channel', 'Distribution channel', 'channel', {
       hint: 'The list is long. Type part of the name or village to shorten it.',

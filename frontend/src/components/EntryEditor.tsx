@@ -16,7 +16,9 @@ type EntryEditorProps = {
   onCancel: () => void
 }
 
-const KYC_TYPES: KycType[] = ['', 'Aadhaar ID', 'PAN ID', 'Other']
+// Aadhaar is no longer asked for; it is offered only for an entry that
+// already has it, so correcting that entry does not lose it.
+const KYC_TYPES: KycType[] = ['', 'PAN ID', 'Other']
 
 // Corrects what was written on one entry, in a window over the page.
 // Which seed lot it belongs to, when it was received and what phone sent it
@@ -151,7 +153,7 @@ function EntryEditor({ entry, fields, onSaved, onCancel }: EntryEditorProps) {
               value={values.kycType}
               onChange={(e) => set({ kycType: e.target.value as KycType })}
             >
-              {KYC_TYPES.map((type) => (
+              {(entry.kycType === 'Aadhaar ID' ? [...KYC_TYPES, entry.kycType] : KYC_TYPES).map((type) => (
                 <option key={type} value={type}>
                   {type || 'Not given'}
                 </option>

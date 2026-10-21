@@ -20,10 +20,12 @@ from .models import FormSettings, utc_now
 FORMS = ("lot", "farmer")
 
 
-def _builtin(key, label, type="text", required=True, core=False, hint="", options=None):
+def _builtin(
+    key, label, type="text", required=True, core=False, hint="", options=None, hidden=False
+):
     return {
         "key": key, "label": label, "hint": hint, "type": type, "options": options or [],
-        "required": required, "hidden": False, "builtin": True, "core": core,
+        "required": required, "hidden": hidden, "builtin": True, "core": core,
     }
 
 
@@ -44,8 +46,11 @@ DEFAULTS = {
         _builtin("date", "Date", "date"),
         _builtin("filledBy", "Who is filling this in?", "choice", options=["Farmer", "Field officer"]),
         _builtin("farmerName", "Farmer name", core=True),
-        _builtin("kycType", "Document / KYC type", "kyc", required=False),
-        _builtin("idNumber", "ID number", required=False),
+        # Identity documents (Aadhaar, PAN or other) are not asked for. Both
+        # questions stay, hidden, so the office can show them again on the
+        # Barcode page, and older entries keep what they had.
+        _builtin("kycType", "Document / KYC type", "kyc", required=False, hidden=True),
+        _builtin("idNumber", "ID number", required=False, hidden=True),
         _builtin("contact", "Contact number", "phone", required=False),
         _builtin(
             "channel", "Distribution channel", "channel",

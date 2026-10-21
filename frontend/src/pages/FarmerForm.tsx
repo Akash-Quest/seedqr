@@ -238,8 +238,6 @@ function check(values: Values, fields: FieldSpec[], t: Text): Errors {
         break
       case 'idNumber':
         if (field.required && !idNumber) errors[key] = t.enter(field.label)
-        else if (values.kycType === 'Aadhaar ID' && idNumber && !/^\d{12}$/.test(idNumber))
-          errors[key] = t.aadhaarDigits
         else if (values.kycType === 'PAN ID' && idNumber && !/^[A-Za-z]{5}\d{4}[A-Za-z]$/.test(idNumber))
           errors[key] = t.panShape
         break
@@ -423,7 +421,9 @@ function EntryForm({ lot, fields, lang, onSaved }: EntryFormProps) {
           <div key={field.key} className="full" role="group" aria-labelledby="kycTypeLabel">
             {groupLabel(field)}
             <div className="chips">
-              {(['Aadhaar ID', 'PAN ID', 'Other'] as const).map((type, i) => (
+              {/* Shown only if the office turns this question back on.
+                  Aadhaar is not asked for; older entries may still have it. */}
+              {(['PAN ID', 'Other'] as const).map((type, i) => (
                 <label key={type}>
                   <input
                     id={i === 0 ? field.key : undefined}
