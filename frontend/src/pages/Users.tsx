@@ -18,7 +18,7 @@ import { toast } from '../data/toast'
 import { DEFAULT_FORMS } from '../data/forms'
 import type { FieldSpec, Forms } from '../data/forms'
 import { tidyQuantity, titleCase } from '../data/text'
-import { formatDate, formatDateTime } from '../data/types'
+import { formatDate, formatDateTime, usableDay } from '../data/types'
 import type { EntryPage, ReceivedEntry } from '../data/types'
 
 function documentType(e: ReceivedEntry): string {
@@ -108,18 +108,6 @@ async function downloadExcel(entries: ReceivedEntry[], forms: Forms) {
 
 // Rows on one page of the table.
 const PAGE_SIZE = 100
-
-// The years the server accepts (see EARLIEST_YEAR in backend/app/schemas.py).
-const FIRST_YEAR = 1970
-const LAST_YEAR = 2200
-
-// A date box's day, if it is a whole one. While a year is typed digit by
-// digit the box holds 0002, 0020, 0202 on the way to 2026; those are left
-// out until the year is complete, instead of being sent and refused.
-function wholeDay(day: string): string {
-  const year = Number(day.slice(0, 4))
-  return /^\d{4}-\d{2}-\d{2}$/.test(day) && year >= FIRST_YEAR && year <= LAST_YEAR ? day : ''
-}
 
 // The start of a day (YYYY-MM-DD) on this computer's clock, as the exact
 // time the server understands. `add` moves it on by that many days.
@@ -212,16 +200,22 @@ function Users() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The days are the ones on this computer's clock.
+  // The days are the ones on this computer's clock. A day still being
+  // typed is left out until it is whole.
   const filters: Filters = {
     q: needle,
-    from: wholeDay(from) ? dayStart(from) : '',
-    to: wholeDay(to) ? dayStart(to, 1) : '',
+    from: usableDay(from) ? dayStart(from) : '',
+    to: usableDay(to) ? dayStart(to, 1) : '',
   }
   const search = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) })
   for (const [name, value] of Object.entries(filters)) if (value) search.set(name, value)
 
-  const { data, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
+  const { data: answer, error, reload, loading, fresh } = useApi<EntryPage>(`/entries?${search}`)
+  // The last list that arrived stays on screen, with the search and dates
+  // above it, even when a request fails: the message shows above it instead.
+  const [held, setHeld] = useState<EntryPage | undefined>(undefined)
+  if (answer && answer !== held) setHeld(answer)
+  const data = answer ?? held
   const forms = useApi<Forms>('/forms').data ?? DEFAULT_FORMS
   // The Document column follows the form: shown only while the office asks
   // farmers for a document. Older entries keep theirs in the Excel file.
@@ -309,10 +303,13 @@ function Users() {
             onClose={() => setImporting(false)}
           />
         )}
-        {error ? (
-          <p className="problem">{error}</p>
-        ) : !data ? (
-          <PageSkeleton />
+        {error && (
+          <p className="problem" role="alert">
+            {error}
+          </p>
+        )}
+        {!data ? (
+          !error && <PageSkeleton />
         ) : (
           <section
             className={`card entries-card${loading || !fresh ? ' stale' : ''}`}
@@ -334,8 +331,7 @@ function Users() {
                 <input
                   type="date"
                   value={from}
-                  min={`${FIRST_YEAR}-01-01`}
-                  max={wholeDay(to) || `${LAST_YEAR}-12-31`}
+                  max={to || undefined}
                   onChange={(e) => {
                     setFrom(e.target.value)
                     setPage(1)
@@ -347,8 +343,7 @@ function Users() {
                 <input
                   type="date"
                   value={to}
-                  min={wholeDay(from) || `${FIRST_YEAR}-01-01`}
-                  max={`${LAST_YEAR}-12-31`}
+                  min={from || undefined}
                   onChange={(e) => {
                     setTo(e.target.value)
                     setPage(1)

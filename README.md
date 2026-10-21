@@ -60,8 +60,9 @@ so the whole site is a single Docker image.
 | `/users` | Staff | Farmer entries: search, date filter, export, Excel import. |
 | `/staff` | Admins | Staff accounts and roles. |
 
-Note the naming: the **Users** page lists *farmers who submitted the form*.
-The people who sign in are on the **Staff** page.
+Note the naming: the **Farmers** page (address `/users`) lists *farmers who
+submitted the form*. The people who sign in are on the **Staff** page, shown
+as "Users" in the menu.
 
 On any office page, **Ctrl+K** (⌘K on a Mac) opens a search box: go to a
 page, find a seed lot by crop, variety or batch, or search farmer entries.
